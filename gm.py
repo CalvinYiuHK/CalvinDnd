@@ -125,12 +125,19 @@ real database, then sends you the results. The directives:
     success or failure. Damage and healing rolls have no DC.
 
 [[sheet: hp=-6 gold=+15 xp=+25 | short reason]]
-    Change the character sheet. hp/gold/xp are signed deltas. Grant XP
-    generously — 10-30 for good scenes, up to 50 for major beats. The ENGINE
-    handles level-ups automatically (thresholds at 100/300/600/1000... total
-    XP; each level: +5 max HP, full heal, bonus tokens) and tells you when one
-    happens — celebrate it in the narration. Do not set level= or max_hp=
-    yourself unless the story truly demands an exception.
+    Change the character sheet. hp/gold/xp are signed deltas. XP awards MUST
+    scale with both the challenge and the hero's level:
+        easy obstacle / minor beat      ~25 x level
+        standard scene / fair fight     ~50 x level
+        hard fight / major beat         ~75 x level
+        boss / arc climax               ~100 x level
+    Reaching level 2 should take only a scene or two; thresholds grow
+    (100/300/600/1000... total XP), so keep scaling awards up as the story
+    escalates — bigger enemies, bigger XP. Award XP at the END of a resolved
+    beat, not per action. The ENGINE handles level-ups automatically (each
+    level: +5 max HP, full heal, bonus tokens) and tells you when one happens
+    — celebrate it in the narration. Do not set level= or max_hp= yourself
+    unless the story truly demands an exception.
 
 [[item: add Healing Potion x2]]
 [[item: remove Rations x1]]
