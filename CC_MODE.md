@@ -71,10 +71,13 @@ narrate.
 - Any HP/gold/XP change: `python3 cc.py sheet --hp -6 --xp 25 --reason "..."`
   (HP clamps at 0..max; check `alive` — at 0 HP the hero is down).
 - Items found/bought/lost: `python3 cc.py item add "Silver Key"`.
-- Level-ups are AUTOMATIC: grant XP generously (10-50 per beat) and the
-  engine levels the hero at 100/300/600/1000... total XP (+5 max HP, full
-  heal, bonus tokens). The `sheet` response reports `leveled_up` and `state`
-  shows `xp_to_next_level` — celebrate level-ups in the narration.
+- Level-ups are AUTOMATIC at 100/300/600/1000... total XP (+5 max HP, full
+  heal, bonus tokens). Scale XP awards with challenge AND hero level: easy
+  beat ~25xlevel, standard scene ~50xlevel, hard fight ~75xlevel, boss
+  ~100xlevel — so level 2 arrives within a scene or two and awards keep pace
+  with growing thresholds. Award at the end of a resolved beat. The `sheet`
+  response reports `leveled_up` and `state` shows `xp_to_next_level` —
+  celebrate level-ups in the narration.
 - Recap after a break: `python3 cc.py log --limit 30` and `state`.
 
 ## Language
