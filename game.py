@@ -123,17 +123,17 @@ def create_character() -> int:
                        ["English", "廣東話 (繁體中文)"])
     lang = "canto" if "廣東話" in lang_pick or "chin" in lang_pick.lower() else "en"
 
-    print(f"\n{DIM}Rolling ability scores (4d6, drop the lowest)...{RESET}")
-    scores = {}
+    # Roll ability scores — reroll the whole line as many times as you like.
     order = ["str", "dex", "con", "int", "wis", "cha"]
-    for ab in order:
-        a = dice.roll_ability()
-        scores[ab] = a["score"]
-        print(f"  {ab.upper()}: {a['score']:>2}   {DIM}({a['detail']}){RESET}")
-
-    reroll = prompt("\nKeep these scores? (Y/n)").lower()
-    if reroll == "n":
-        return create_character()
+    while True:
+        print(f"\n{DIM}Rolling ability scores (4d6, drop the lowest)...{RESET}")
+        scores = {}
+        for ab in order:
+            a = dice.roll_ability()
+            scores[ab] = a["score"]
+            print(f"  {ab.upper()}: {a['score']:>2}   {DIM}({a['detail']}){RESET}")
+        if prompt("\nKeep these scores? (Y = keep / n = reroll)").lower() != "n":
+            break
 
     hit_die = CLASS_HIT_DIE.get(char_class, 8)
     max_hp = max(1, hit_die + ability_mod(scores["con"]))

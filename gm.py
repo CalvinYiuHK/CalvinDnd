@@ -49,7 +49,7 @@ BACKENDS = {
     "claude": {
         "bin": CLAUDE_BIN,
         "mode": "session",
-        "default_model": "opus",
+        "default_model": "sonnet",
         "models": ["opus", "sonnet", "haiku"],
         "install": "https://claude.com/claude-code",
     },
@@ -74,8 +74,8 @@ def current_model(backend: str | None = None) -> str:
 
 
 def current_effort() -> str:
-    """Effort level (claude only): env override > /effort setting > CLI default."""
-    return os.environ.get("TAVERN_EFFORT") or db.get_setting("effort", "")
+    """Effort level (claude only): env override > /effort setting > medium."""
+    return os.environ.get("TAVERN_EFFORT") or db.get_setting("effort", "") or "medium"
 
 HISTORY_TURNS = 60        # transcript entries replayed per stateless call
 HISTORY_CLIP = 1500       # max chars per replayed entry
