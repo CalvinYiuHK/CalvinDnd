@@ -43,6 +43,13 @@ type `p2` instead of `2` to spend a power token (+10 on that roll); after a
 failed check you're offered a reroll. The GM grants more as **story rewards**
 (crits, clever play, milestones — `[[reward: ...]]`), capped at 9 each.
 
+**Progression (BG3-style)** — level-ups grant **+4 attribute points you
+allocate yourself**; the story drops **equipment** in five rarities
+(normal → uncommon → **rare** → *epic* → **legendary**, color-coded) with stat
+bonuses and — at rare and above — special abilities (rare 1, legendary up to
+5); and you learn **skills** with fixed dice + your ability mods (`s1` to use
+one as your action, like casting in BG3). `/gear`, `/skills`, `/train`.
+
 **CC mode** — play from the Claude phone app: point a Claude chat (with code
 execution) at this repo and `CC_MODE.md`. Chat-Claude becomes the GM and runs
 `cc.py` in its sandbox for all dice, stats, and tokens — same honest numbers,

@@ -75,7 +75,15 @@ def _state(cid: int) -> dict:
         "gold": c["gold"], "xp": c["xp"],
         "xp_for_next_level": db.xp_for_next(c["level"]),
         "xp_to_next_level": max(0, db.xp_for_next(c["level"]) - c["xp"]),
-        "abilities": {a: {"score": c[a], "mod": ability_mod(c[a])} for a in ABILITIES},
+        "abilities": {a: {"score": c[a],
+                          "gear_bonus": db.equipment_bonuses(cid).get(a, 0),
+                          "effective": c[a] + db.equipment_bonuses(cid).get(a, 0),
+                          "mod": ability_mod(c[a] + db.equipment_bonuses(cid).get(a, 0))}
+                      for a in ABILITIES},
+        "attr_points_unspent": c.get("attr_points", 0),
+        "equipment": db.list_equipment(cid),
+        "skills": [{**sk, "slots": f"{i+1}"} for i, sk in enumerate(db.list_skills(cid))],
+        "skill_slots_max": db.max_skill_slots(c["level"]),
         "proficiency_bonus": proficiency_bonus(c["level"]),
         "tokens": {"rerolls": c.get("rerolls", 0), "power": c.get("power_rolls", 0)},
         "scenario": c.get("scenario", "tavern"),
@@ -124,8 +132,9 @@ def cmd_check(args) -> None:
     trait = args.trait.lower()
     if trait not in ABILITIES:
         _fail(f"trait must be one of {ABILITIES}")
-    mod = ability_mod(c[trait])
-    parts = [f"{trait.upper()} {ability_mod(c[trait]):+d}"]
+    eff = c[trait] + db.equipment_bonuses(cid).get(trait, 0)
+    mod = ability_mod(eff)
+    parts = [f"{trait.upper()} {mod:+d} (incl. gear)"]
     if args.prof:
         mod += proficiency_bonus(c["level"])
         parts.append(f"proficiency +{proficiency_bonus(c['level'])}")
@@ -216,6 +225,68 @@ def cmd_reward(args) -> None:
           "tokens": {"rerolls": char.get("rerolls", 0), "power": char.get("power_rolls", 0)}})
 
 
+def cmd_equip(args) -> None:
+    cid = _target(args)
+    if args.action == "grant":
+        bonuses = {}
+        import re as _re
+        for m in _re.finditer(r"(str|dex|con|int|wis|cha)([+-]\d+)", args.bonuses or "", _re.I):
+            bonuses[m.group(1).lower()] = int(m.group(2))
+        abilities = [a.strip() for a in (args.abilities or "").split(";") if a.strip()]
+        item = db.add_equipment(cid, args.name, args.slot, args.rarity, bonuses, abilities)
+        db.log_event(cid, "equip", f"{item['rarity']} {item['slot']}: {item['name']}")
+        _out({"granted": item})
+    elif args.action == "use":
+        item = db.equip_item(cid, int(args.name))
+        if item is None:
+            _fail("no such equipment id")
+        _out({"equipped": item})
+    else:  # list
+        _out({"equipment": db.list_equipment(cid)})
+
+
+def cmd_skill(args) -> None:
+    cid = _target(args)
+    if args.action == "learn":
+        attrs = [a.strip().lower() for a in (args.attrs or "str").split(",")]
+        sk = db.add_skill(cid, args.name, attrs, args.dice, args.descr or "")
+        if sk is None:
+            _fail("skill slots full — forget one first (skill forget ID)")
+        db.log_event(cid, "skill", f"learned {sk['name']}")
+        _out({"learned": sk, "slots_max": db.max_skill_slots(db.get_character(cid)["level"])})
+    elif args.action == "use":
+        skills = {str(sk["id"]): sk for sk in db.list_skills(cid)}
+        sk = skills.get(args.name)
+        if sk is None:
+            _fail("no such skill id — see `skill list`")
+        c = db.get_character(cid)
+        mods = sum(ability_mod(c[a] + db.equipment_bonuses(cid).get(a, 0))
+                   for a in sk["attrs"])
+        notation = f"{sk['dice']}{mods:+d}" if mods else sk["dice"]
+        result = dice.roll(notation)
+        db.log_event(cid, "roll", f"skill {sk['name']}: {result.detail()}")
+        _out({"skill": sk["name"], "formula": notation,
+              "detail": result.detail(), "total": result.total})
+    elif args.action == "forget":
+        ok = db.remove_skill(cid, int(args.name))
+        _out({"forgotten": ok})
+    else:  # list
+        _out({"skills": db.list_skills(cid),
+              "slots_max": db.max_skill_slots(db.get_character(cid)["level"])})
+
+
+def cmd_allocate(args) -> None:
+    cid = _target(args)
+    alloc = {a: v for a, v in (("str", args.str), ("dex", args.dex), ("con", args.con),
+                               ("int", args.int), ("wis", args.wis), ("cha", args.cha)) if v}
+    try:
+        char = db.spend_attr_points(cid, alloc)
+    except ValueError as e:
+        _fail(str(e))
+    db.log_event(cid, "levelup", f"allocated points: {alloc}")
+    _out({"allocated": alloc, "state": _state(cid)})
+
+
 def cmd_log(args) -> None:
     cid = _target(args)
     _out({"log": db.get_log(cid, limit=args.limit)})
@@ -280,6 +351,31 @@ def main() -> None:
     p.add_argument("--reason", default="")
     p.add_argument("--id", type=int)
     p.set_defaults(fn=cmd_reward)
+
+    p = sub.add_parser("equip", help="equipment: grant/use/list")
+    p.add_argument("action", choices=["grant", "use", "list"])
+    p.add_argument("name", nargs="?", default="", help="item name (grant) or id (use)")
+    p.add_argument("--rarity", default="normal", choices=list(db.RARITIES))
+    p.add_argument("--slot", default="trinket", choices=list(db.GEAR_SLOTS))
+    p.add_argument("--bonuses", default="", help="e.g. 'str+2 dex+1'")
+    p.add_argument("--abilities", default="", help="semicolon-separated (rare+ only)")
+    p.add_argument("--id", type=int)
+    p.set_defaults(fn=cmd_equip)
+
+    p = sub.add_parser("skill", help="skills: learn/use/forget/list")
+    p.add_argument("action", choices=["learn", "use", "forget", "list"])
+    p.add_argument("name", nargs="?", default="", help="skill name (learn) or id (use/forget)")
+    p.add_argument("--attrs", default="str", help="e.g. 'dex' or 'str,int'")
+    p.add_argument("--dice", default="1d6")
+    p.add_argument("--descr", default="")
+    p.add_argument("--id", type=int)
+    p.set_defaults(fn=cmd_skill)
+
+    p = sub.add_parser("allocate", help="spend level-up attribute points")
+    for a in ("str", "dex", "con", "int", "wis", "cha"):
+        p.add_argument(f"--{a}", type=int, default=0)
+    p.add_argument("--id", type=int)
+    p.set_defaults(fn=cmd_allocate)
 
     p = sub.add_parser("log", help="recent events")
     p.add_argument("--limit", type=int, default=20)

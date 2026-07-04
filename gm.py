@@ -152,6 +152,31 @@ real database, then sends you the results. The directives:
     At most one reward per scene; make it feel earned, and mention it in the
     narration ("Old Greg slides a lucky coin across the bar...").
 
+[[equip: NAME | rarity | slot | str+2 dex+1 | Ability One: effect; Ability Two: effect]]
+    Grant a piece of equipment as loot, a purchase, or a quest reward.
+    - rarity: normal, uncommon, rare, epic, legendary. Scale drops to the
+      hero's level and the feat: normal/uncommon are everyday finds; rare is
+      a real prize; epic is a quest centerpiece; legendary is once-an-arc,
+      earned through something extraordinary.
+    - slot: weapon, armor, or trinket (one of each may be equipped).
+    - Stat bonuses scale with rarity: normal +0..1, uncommon +1, rare +2,
+      epic +3..4 (may split across two abilities), legendary +5..6 (split).
+    - Special abilities ONLY at rare and above: rare exactly 1 simple one,
+      epic 2-3 stronger ones, legendary 4-5 powerful ones. Separate with ";".
+      Abilities are narrative powers you honor in play (e.g. "Flame Edge:
+      attacks deal fire; +1d6 vs undead").
+    - The player equips and swaps gear themselves; equipped bonuses are
+      already included in the modifiers you see.
+
+[[skill: NAME | attr1,attr2 | 2d6 | one-line description]]
+    Teach the hero an active skill (a trainer, a manual, a level milestone,
+    a story epiphany). Skills are signature moves: when the player uses one,
+    the engine rolls the fixed dice PLUS the listed ability modifier(s) and
+    sends you the result to adjudicate. 1 or 2 attrs from
+    STR/DEX/CON/INT/WIS/CHA; dice between 1d6 and 4d8 (stronger dice for
+    bigger milestones). Offer a new skill every level or two — if the hero's
+    slots are full the engine tells you, and the player may forget one first.
+
 Hard rules for directives:
 1. When an outcome is uncertain, you MUST emit a [[roll:...]] directive and \
 STOP your reply right there — do not narrate the outcome yet. The results \
@@ -233,7 +258,7 @@ in Chinese.
 }
 
 # [[kind: body]] — tolerant of whitespace and newlines inside the body.
-_DIRECTIVE_RE = re.compile(r"\[\[\s*(roll|sheet|item|reward)\s*:\s*(.*?)\s*\]\]", re.IGNORECASE | re.DOTALL)
+_DIRECTIVE_RE = re.compile(r"\[\[\s*(roll|sheet|item|reward|equip|skill)\s*:\s*(.*?)\s*\]\]", re.IGNORECASE | re.DOTALL)
 _CHOICE_RE = re.compile(r"\[\[\s*choice\s*:\s*(.*?)\s*\]\]", re.IGNORECASE | re.DOTALL)
 
 ABILITY_TAGS = ("str", "dex", "con", "int", "wis", "cha")
@@ -424,13 +449,29 @@ class GameMaster:
         char = db.get_character(self.character_id)
         inv = db.get_inventory(self.character_id)
         inv_str = ", ".join(f"{i['item']} x{i['qty']}" for i in inv) or "(empty)"
+        gear = [e for e in db.list_equipment(self.character_id) if e["equipped"]]
+        gear_str = ", ".join(
+            f"{e['name']} [{e['rarity']} {e['slot']}"
+            + (", " + "; ".join(e["abilities"]) if e["abilities"] else "") + "]"
+            for e in gear) or "(none)"
+        skills = db.list_skills(self.character_id)
+        skill_str = ", ".join(
+            f"{s['name']} ({s['dice']}+{'+'.join(a.upper() for a in s['attrs'])})"
+            for s in skills) or "(none)"
+        stats = " ".join(
+            f"{a.upper()} {self._eff_score(char, a)}"
+            + (f" ({char[a]}{self._gear_bonuses().get(a, 0):+d} gear)"
+               if self._gear_bonuses().get(a) else "")
+            for a in ("str", "dex", "con", "int", "wis", "cha"))
         return (
             f"[Character sheet — authoritative: {char['name']}, level {char['level']} "
             f"{char['race']} {char['class']} | HP {char['hp']}/{char['max_hp']} | "
-            f"Gold {char['gold']} | XP {char['xp']} | STR {char['str']} DEX {char['dex']} "
-            f"CON {char['con']} INT {char['int']} WIS {char['wis']} CHA {char['cha']} | "
+            f"Gold {char['gold']} | XP {char['xp']} | {stats} | "
             f"XP to next level: {db.xp_for_next(char['level']) - char['xp']} | "
+            f"Unspent attribute points: {char.get('attr_points', 0)} | "
             f"Tokens: rerolls {char.get('rerolls', 0)}, power {char.get('power_rolls', 0)} | "
+            f"Equipped: {gear_str} | "
+            f"Skills {len(skills)}/{db.max_skill_slots(char['level'])}: {skill_str} | "
             f"Inventory: {inv_str}]"
         )
 
@@ -498,11 +539,14 @@ class GameMaster:
         if char.get("_leveled_up"):
             self._show(f"🎉 LEVEL UP! {char['name'] if 'name' in char else 'The hero'} "
                        f"is now level {char['level']} — max HP {char['max_hp']}, fully "
-                       f"healed, +1 ⚡ power and +1 ↻ reroll!")
+                       f"healed, +1 ⚡ power, +1 ↻ reroll, and "
+                       f"{4 * char['_leveled_up']} attribute points to spend!")
             db.log_event(self.character_id, "levelup", f"Reached level {char['level']}")
             levelup = (f" *** LEVEL UP: the hero just reached level {char['level']} "
-                       f"(max HP now {char['max_hp']}, fully healed, bonus tokens "
-                       f"granted). Celebrate this in the narration! ***")
+                       f"(max HP now {char['max_hp']}, fully healed, bonus tokens, and "
+                       f"{char.get('attr_points', 0)} unspent attribute points "
+                       f"the player will now allocate) "
+                       f". Celebrate this in the narration! ***")
         status = "" if char["hp"] > 0 else " — THE CHARACTER IS AT 0 HP (down/dying)"
         return (f"sheet ({reason}): HP {char['hp']}/{char['max_hp']}, Gold {char['gold']}, "
                 f"XP {char['xp']} (next level at {db.xp_for_next(char['level'])}), "
@@ -583,6 +627,90 @@ class GameMaster:
                          f"reroll {spent} of {label}: {result.detail()}")
         return result, spent
 
+    def _exec_equip(self, body: str) -> str:
+        parts = [p.strip() for p in body.split("|")]
+        if not parts or not parts[0]:
+            return "equip: missing item name"
+        name = parts[0]
+        rarity = (parts[1].lower() if len(parts) > 1 else "normal").strip()
+        if rarity not in db.RARITIES:
+            rarity = "normal"
+        slot = (parts[2].lower() if len(parts) > 2 else "trinket").strip()
+        bonuses = {}
+        if len(parts) > 3:
+            for m in re.finditer(r"(str|dex|con|int|wis|cha)\s*([+-]\d+)", parts[3], re.I):
+                bonuses[m.group(1).lower()] = int(m.group(2))
+        abilities = []
+        if len(parts) > 4:
+            abilities = [a.strip() for a in parts[4].split(";") if a.strip()]
+        cap = db.RARITY_ABILITY_CAP[rarity]
+        clipped = len(abilities) > cap
+        item = db.add_equipment(self.character_id, name, slot, rarity,
+                                bonuses, abilities)
+        bon = " ".join(f"{k.upper()}{v:+d}" for k, v in item["bonuses"].items()) or "no stat bonus"
+        print(f"\n  💎 {ui.rarity(item['name'], item['rarity'])} "
+              f"{ui.SHADOW}[{item['rarity']} {item['slot']}]{RESET} "
+              f"{GREEN}{bon}{RESET}"
+              f"{'  (equipped)' if item['equipped'] else '  (in pack — /gear to equip)'}")
+        for ab in item["abilities"]:
+            print(f"     {ui.GOLD}✧{RESET} {ab}")
+        db.log_event(self.character_id, "equip",
+                     f"{item['rarity']} {item['slot']}: {item['name']} ({bon})")
+        note = " (extra abilities beyond the rarity cap were dropped)" if clipped else ""
+        return (f"equip: {item['rarity']} {item['slot']} \"{item['name']}\" granted "
+                f"[{bon}; abilities: {'; '.join(item['abilities']) or 'none'}]"
+                f"{' and auto-equipped' if item['equipped'] else ' (in pack)'}{note}")
+
+    def _exec_skill(self, body: str) -> str:
+        parts = [p.strip() for p in body.split("|")]
+        if not parts or not parts[0]:
+            return "skill: missing name"
+        name = parts[0]
+        attrs = [a.strip().lower() for a in (parts[1] if len(parts) > 1 else "str").split(",")]
+        dice_notation = parts[2] if len(parts) > 2 else "1d6"
+        descr = parts[3] if len(parts) > 3 else ""
+        try:
+            dice.roll(dice_notation)  # validate
+        except ValueError:
+            return f"skill: invalid dice {dice_notation!r}"
+        skill = db.add_skill(self.character_id, name, attrs, dice_notation, descr)
+        char = db.get_character(self.character_id)
+        if skill is None:
+            return (f"skill: the hero's {db.max_skill_slots(char['level'])} skill "
+                    f"slots are FULL — tell the player they must forget a skill "
+                    f"(/skills) before learning \"{name}\"")
+        tags = "+".join(a.upper() for a in skill["attrs"])
+        print(f"\n  📖 Learned {ui.AMBER}{ui.BOLD}{skill['name']}{RESET} "
+              f"{ui.ARCANE}({skill['dice']} + {tags}){RESET} — {descr}")
+        db.log_event(self.character_id, "skill", f"learned {name} ({dice_notation}+{tags})")
+        n = len(db.list_skills(self.character_id))
+        return (f"skill: \"{name}\" learned ({dice_notation} + {tags} modifiers). "
+                f"Slots used: {n}/{db.max_skill_slots(char['level'])}.")
+
+    def use_skill(self, index: int) -> None:
+        """Use a learned skill as this turn's action (s1, s2, ...)."""
+        skills = db.list_skills(self.character_id)
+        if not (0 <= index < len(skills)):
+            print(f"  {ui.BLOOD}No such skill — /skills to list them.{RESET}")
+            return
+        sk = skills[index]
+        char = db.get_character(self.character_id)
+        mods = sum(ability_mod(self._eff_score(char, a)) for a in sk["attrs"])
+        notation = f"{sk['dice']}{mods:+d}" if mods else sk["dice"]
+        tags = "+".join(a.upper() for a in sk["attrs"])
+        result = dice.roll(notation)
+        ui.roll_display(f"{sk['name']} ({tags})", result.detail(), result.total,
+                        notation=notation)
+        db.log_event(self.character_id, "roll",
+                     f"skill {sk['name']}: {result.detail()}")
+        name, descr = sk["name"], sk["descr"] or tags
+        self.send(
+            f'I use my skill "{name}" ({descr}). '
+            f"The engine rolled its fixed dice plus my {tags} modifier(s): "
+            f"{result.detail()} → total {result.total}. Adjudicate the effect "
+            f"with this power level and narrate."
+        )
+
     def _execute(self, kind: str, body: str) -> str:
         try:
             if kind == "roll":
@@ -593,6 +721,10 @@ class GameMaster:
                 return self._exec_item(body)
             if kind == "reward":
                 return self._exec_reward(body)
+            if kind == "equip":
+                return self._exec_equip(body)
+            if kind == "skill":
+                return self._exec_skill(body)
         except Exception as e:
             return f"{kind}: ERROR — {e}"
         return f"{kind}: unknown directive"
@@ -624,9 +756,17 @@ class GameMaster:
                 out.append((text, trait, prof, dc, assumed))
         return out
 
+    def _gear_bonuses(self) -> dict:
+        return db.equipment_bonuses(self.character_id)
+
+    def _eff_score(self, char: dict, trait: str) -> int:
+        """Ability score including equipped-gear bonuses."""
+        return char[trait] + self._gear_bonuses().get(trait, 0)
+
     def _check_mod(self, char: dict, trait: str, prof: bool) -> int:
-        """Total d20 modifier: ability mod + proficiency when it applies."""
-        return ability_mod(char[trait]) + (proficiency_bonus(char["level"]) if prof else 0)
+        """Total d20 modifier: (gear-adjusted) ability mod + proficiency."""
+        return (ability_mod(self._eff_score(char, trait))
+                + (proficiency_bonus(char["level"]) if prof else 0))
 
     def _print_choices(self) -> None:
         char = db.get_character(self.character_id)
