@@ -49,7 +49,7 @@ BACKENDS = {
     "claude": {
         "bin": CLAUDE_BIN,
         "mode": "session",
-        "default_model": "opus",
+        "default_model": "sonnet",
         "models": ["opus", "sonnet", "haiku"],
         "install": "https://claude.com/claude-code",
     },
@@ -74,8 +74,8 @@ def current_model(backend: str | None = None) -> str:
 
 
 def current_effort() -> str:
-    """Effort level (claude only): env override > /effort setting > CLI default."""
-    return os.environ.get("TAVERN_EFFORT") or db.get_setting("effort", "")
+    """Effort level (claude only): env override > /effort setting > medium."""
+    return os.environ.get("TAVERN_EFFORT") or db.get_setting("effort", "") or "medium"
 
 HISTORY_TURNS = 60        # transcript entries replayed per stateless call
 HISTORY_CLIP = 1500       # max chars per replayed entry
@@ -125,8 +125,12 @@ real database, then sends you the results. The directives:
     success or failure. Damage and healing rolls have no DC.
 
 [[sheet: hp=-6 gold=+15 xp=+25 | short reason]]
-    Change the character sheet. hp/gold/xp are signed deltas. On level-up you
-    may also set absolutes: level=2 max_hp=22.
+    Change the character sheet. hp/gold/xp are signed deltas. Grant XP
+    generously — 10-30 for good scenes, up to 50 for major beats. The ENGINE
+    handles level-ups automatically (thresholds at 100/300/600/1000... total
+    XP; each level: +5 max HP, full heal, bonus tokens) and tells you when one
+    happens — celebrate it in the narration. Do not set level= or max_hp=
+    yourself unless the story truly demands an exception.
 
 [[item: add Healing Potion x2]]
 [[item: remove Rations x1]]
@@ -418,6 +422,7 @@ class GameMaster:
             f"{char['race']} {char['class']} | HP {char['hp']}/{char['max_hp']} | "
             f"Gold {char['gold']} | XP {char['xp']} | STR {char['str']} DEX {char['dex']} "
             f"CON {char['con']} INT {char['int']} WIS {char['wis']} CHA {char['cha']} | "
+            f"XP to next level: {db.xp_for_next(char['level']) - char['xp']} | "
             f"Tokens: rerolls {char.get('rerolls', 0)}, power {char.get('power_rolls', 0)} | "
             f"Inventory: {inv_str}]"
         )
@@ -479,12 +484,22 @@ class GameMaster:
         char = db.adjust_character(self.character_id, **deltas,
                                    level=absolutes["level"], max_hp=absolutes["max_hp"])
         line = (f"{reason}  →  HP {char['hp']}/{char['max_hp']}  Gold {char['gold']}  "
-                f"XP {char['xp']}  Lvl {char['level']}")
+                f"XP {char['xp']}/{db.xp_for_next(char['level'])}  Lvl {char['level']}")
         self._show(f"📜 {line}")
         db.log_event(self.character_id, "sheet", line)
+        levelup = ""
+        if char.get("_leveled_up"):
+            self._show(f"🎉 LEVEL UP! {char['name'] if 'name' in char else 'The hero'} "
+                       f"is now level {char['level']} — max HP {char['max_hp']}, fully "
+                       f"healed, +1 ⚡ power and +1 ↻ reroll!")
+            db.log_event(self.character_id, "levelup", f"Reached level {char['level']}")
+            levelup = (f" *** LEVEL UP: the hero just reached level {char['level']} "
+                       f"(max HP now {char['max_hp']}, fully healed, bonus tokens "
+                       f"granted). Celebrate this in the narration! ***")
         status = "" if char["hp"] > 0 else " — THE CHARACTER IS AT 0 HP (down/dying)"
         return (f"sheet ({reason}): HP {char['hp']}/{char['max_hp']}, Gold {char['gold']}, "
-                f"XP {char['xp']}, Level {char['level']}{status}")
+                f"XP {char['xp']} (next level at {db.xp_for_next(char['level'])}), "
+                f"Level {char['level']}{status}{levelup}")
 
     def _exec_item(self, body: str) -> str:
         m = re.match(r"(add|remove)\s+(.+?)(?:\s+x\s*(\d+))?\s*$", body.strip(), re.I | re.S)

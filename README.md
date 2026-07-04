@@ -95,7 +95,7 @@ dialogue. Your hero's name glows gold in the narration.
 
 ## Customize
 
-- Env vars: `TAVERN_MODEL` (default `opus`), `TAVERN_EFFORT` (`low` = snappier),
+- Env vars: `TAVERN_MODEL` (default `sonnet`; try `opus` for richer storytelling), `TAVERN_EFFORT` (default `medium`; `low` = snappier),
   `TAVERN_TIMEOUT`, `TAVERN_DB`, `TAVERN_NO_ANIM=1` (skip dice animation),
   `NO_COLOR` (plain output).
 - Add a story: drop a new entry in `scenarios.py` — premise, roles, kit, opener.
