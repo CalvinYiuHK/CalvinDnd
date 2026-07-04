@@ -173,12 +173,23 @@ def list_characters() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def xp_for_next(level: int) -> int:
+    """Total XP needed to reach the next level.
+
+    A gentle triangular curve — 100, 300, 600, 1000, ... — so a level-up
+    lands every handful of scenes at typical 10-50 XP story grants.
+    """
+    return 50 * level * (level + 1)
+
+
 def adjust_character(character_id: int, *, hp: int = 0, gold: int = 0, xp: int = 0,
                      level: Optional[int] = None, max_hp: Optional[int] = None) -> dict:
     """Apply deltas (hp/gold/xp) and optional absolute sets (level/max_hp).
 
-    HP is clamped to [0, max_hp]; gold and xp are clamped at 0.
-    Returns the updated character row.
+    HP is clamped to [0, max_hp]; gold and xp are clamped at 0. When gained XP
+    crosses the curve (and no absolute level was set), the engine auto-levels:
+    +5 max HP, a full heal, and +1 reroll & +1 power token per level. The
+    returned row carries "_leveled_up": <levels gained>.
     """
     char = get_character(character_id)
     if char is None:
@@ -190,6 +201,15 @@ def adjust_character(character_id: int, *, hp: int = 0, gold: int = 0, xp: int =
     new_xp = max(0, char["xp"] + xp)
     new_level = level if level is not None else char["level"]
 
+    leveled = 0
+    if level is None:
+        while new_xp >= xp_for_next(new_level):
+            new_level += 1
+            new_max_hp += 5
+            leveled += 1
+        if leveled:
+            new_hp = new_max_hp  # level-up comes with a full heal
+
     with _conn() as c:
         c.execute(
             """UPDATE characters
@@ -197,7 +217,11 @@ def adjust_character(character_id: int, *, hp: int = 0, gold: int = 0, xp: int =
                WHERE id=?""",
             (new_hp, new_max_hp, new_gold, new_xp, new_level, _now(), character_id),
         )
-    return get_character(character_id)
+    if leveled:
+        adjust_resources(character_id, rerolls=leveled, power_rolls=leveled)
+    result = get_character(character_id)
+    result["_leveled_up"] = leveled
+    return result
 
 
 # ----------------------------------------------------------------- inventory --

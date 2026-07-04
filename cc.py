@@ -73,6 +73,8 @@ def _state(cid: int) -> dict:
         "id": c["id"], "name": c["name"], "race": c["race"], "class": c["class"],
         "level": c["level"], "hp": c["hp"], "max_hp": c["max_hp"],
         "gold": c["gold"], "xp": c["xp"],
+        "xp_for_next_level": db.xp_for_next(c["level"]),
+        "xp_to_next_level": max(0, db.xp_for_next(c["level"]) - c["xp"]),
         "abilities": {a: {"score": c[a], "mod": ability_mod(c[a])} for a in ABILITIES},
         "proficiency_bonus": proficiency_bonus(c["level"]),
         "tokens": {"rerolls": c.get("rerolls", 0), "power": c.get("power_rolls", 0)},
@@ -190,6 +192,7 @@ def cmd_sheet(args) -> None:
                  f"Gold {char['gold']}, XP {char['xp']}, Lvl {char['level']}")
     _out({"applied": {"hp": args.hp, "gold": args.gold, "xp": args.xp,
                       "level": args.level, "max_hp": args.max_hp},
+          "leveled_up": char.get("_leveled_up", 0),
           "state": _state(cid)})
 
 

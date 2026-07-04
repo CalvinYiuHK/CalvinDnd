@@ -87,7 +87,8 @@ def show_sheet(char: dict) -> None:
     print(ui.rule(f"{char['name']} · lvl {char['level']} {who} · {scen['emoji']} {scen['title']}"))
     print(f"  {DIM}HP{RESET}   {ui.hp_bar(char['hp'], char['max_hp'])}"
           f"     {ui.GOLD}⛁ {char['gold']} gold{RESET}   "
-          f"{ui.ARCANE}✦ {char['xp']} xp{RESET}   "
+          f"{ui.ARCANE}✦ {char['xp']}/{db.xp_for_next(char['level'])} xp "
+          f"({db.xp_for_next(char['level']) - char['xp']} to lvl {char['level'] + 1}){RESET}   "
           f"{ui.GOLD}⚡ {char.get('power_rolls', 0)}{RESET}   "
           f"{ui.ARCANE}↻ {char.get('rerolls', 0)}{RESET}   {DIM}[{lang}]{RESET}")
     print(f"  {'   '.join(stats[:3])}")
