@@ -57,6 +57,7 @@ def init_db() -> None:
                 premise    TEXT NOT NULL DEFAULT '',
                 rerolls    INTEGER NOT NULL DEFAULT 3,
                 power_rolls INTEGER NOT NULL DEFAULT 1,
+                attr_points INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -89,6 +90,28 @@ def init_db() -> None:
                 key   TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS equipment (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                character_id INTEGER NOT NULL,
+                name         TEXT NOT NULL,
+                slot         TEXT NOT NULL DEFAULT 'trinket',
+                rarity       TEXT NOT NULL DEFAULT 'normal',
+                bonuses      TEXT NOT NULL DEFAULT '{}',
+                abilities    TEXT NOT NULL DEFAULT '[]',
+                equipped     INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS skills (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                character_id INTEGER NOT NULL,
+                name         TEXT NOT NULL,
+                attrs        TEXT NOT NULL DEFAULT '["str"]',
+                dice         TEXT NOT NULL DEFAULT '1d6',
+                descr        TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE
+            );
             """
         )
         # Migrations for databases created before newer columns existed.
@@ -97,7 +120,8 @@ def init_db() -> None:
                           ("scenario", "TEXT NOT NULL DEFAULT 'tavern'"),
                           ("premise", "TEXT NOT NULL DEFAULT ''"),
                           ("rerolls", "INTEGER NOT NULL DEFAULT 3"),
-                          ("power_rolls", "INTEGER NOT NULL DEFAULT 1")):
+                          ("power_rolls", "INTEGER NOT NULL DEFAULT 1"),
+                          ("attr_points", "INTEGER NOT NULL DEFAULT 0")):
             if col not in cols:
                 c.execute(f"ALTER TABLE characters ADD COLUMN {col} {decl}")
 
@@ -219,6 +243,9 @@ def adjust_character(character_id: int, *, hp: int = 0, gold: int = 0, xp: int =
         )
     if leveled:
         adjust_resources(character_id, rerolls=leveled, power_rolls=leveled)
+        with _conn() as c:
+            c.execute("UPDATE characters SET attr_points = attr_points + ? WHERE id=?",
+                      (4 * leveled, character_id))
     result = get_character(character_id)
     result["_leveled_up"] = leveled
     return result
@@ -308,3 +335,157 @@ def load_conversation(character_id: int):
             "SELECT messages FROM conversation WHERE character_id=?", (character_id,)
         ).fetchone()
     return json.loads(row["messages"]) if row else []
+
+
+# ------------------------------------------------------ progression: gear ----
+
+RARITIES = ("normal", "uncommon", "rare", "epic", "legendary")
+# maximum special abilities an item of each rarity may carry
+RARITY_ABILITY_CAP = {"normal": 0, "uncommon": 0, "rare": 1, "epic": 3, "legendary": 5}
+GEAR_SLOTS = ("weapon", "armor", "trinket")
+
+STAT_CAP = 24  # ability scores can't be raised past this
+
+
+def add_equipment(character_id: int, name: str, slot: str, rarity: str,
+                  bonuses: dict, abilities: list[str]) -> dict:
+    """Add a piece of gear; auto-equips if its slot is empty."""
+    slot = slot if slot in GEAR_SLOTS else "trinket"
+    rarity = rarity if rarity in RARITIES else "normal"
+    abilities = list(abilities)[: RARITY_ABILITY_CAP[rarity]]
+    bonuses = {k: int(v) for k, v in bonuses.items() if k in ABILITIES and int(v)}
+    with _conn() as c:
+        taken = c.execute(
+            "SELECT 1 FROM equipment WHERE character_id=? AND slot=? AND equipped=1",
+            (character_id, slot)).fetchone()
+        cur = c.execute(
+            "INSERT INTO equipment (character_id, name, slot, rarity, bonuses, "
+            "abilities, equipped) VALUES (?,?,?,?,?,?,?)",
+            (character_id, name.strip(), slot, rarity, json.dumps(bonuses),
+             json.dumps(abilities), 0 if taken else 1))
+        eid = cur.lastrowid
+    return get_equipment_item(eid)
+
+
+def get_equipment_item(equipment_id: int) -> Optional[dict]:
+    with _conn() as c:
+        row = c.execute("SELECT * FROM equipment WHERE id=?", (equipment_id,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["bonuses"] = json.loads(d["bonuses"])
+    d["abilities"] = json.loads(d["abilities"])
+    d["equipped"] = bool(d["equipped"])
+    return d
+
+
+def list_equipment(character_id: int) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT id FROM equipment WHERE character_id=? "
+            "ORDER BY equipped DESC, id", (character_id,)).fetchall()
+    return [get_equipment_item(r["id"]) for r in rows]
+
+
+def equip_item(character_id: int, equipment_id: int) -> Optional[dict]:
+    """Equip an owned item, unequipping whatever holds its slot."""
+    item = get_equipment_item(equipment_id)
+    if item is None or item["character_id"] != character_id:
+        return None
+    with _conn() as c:
+        c.execute("UPDATE equipment SET equipped=0 WHERE character_id=? AND slot=?",
+                  (character_id, item["slot"]))
+        c.execute("UPDATE equipment SET equipped=1 WHERE id=?", (equipment_id,))
+    return get_equipment_item(equipment_id)
+
+
+def equipment_bonuses(character_id: int) -> dict:
+    """Aggregate ability bonuses from all equipped gear, e.g. {'str': 2}."""
+    total: dict = {}
+    for item in list_equipment(character_id):
+        if item["equipped"]:
+            for k, v in item["bonuses"].items():
+                total[k] = total.get(k, 0) + v
+    return total
+
+
+# ----------------------------------------------------- progression: skills ---
+
+def max_skill_slots(level: int) -> int:
+    """Skill slots: 3 at level 1, +1 every two levels."""
+    return 3 + max(0, level - 1) // 2
+
+
+def add_skill(character_id: int, name: str, attrs: list[str], dice_notation: str,
+              descr: str = "") -> Optional[dict]:
+    """Learn a skill. Returns None if all skill slots are full."""
+    char = get_character(character_id)
+    existing = list_skills(character_id)
+    if len(existing) >= max_skill_slots(char["level"]):
+        return None
+    attrs = [a for a in attrs if a in ABILITIES][:2] or ["str"]
+    with _conn() as c:
+        cur = c.execute(
+            "INSERT INTO skills (character_id, name, attrs, dice, descr) "
+            "VALUES (?,?,?,?,?)",
+            (character_id, name.strip(), json.dumps(attrs), dice_notation, descr))
+        sid = cur.lastrowid
+    return get_skill(sid)
+
+
+def get_skill(skill_id: int) -> Optional[dict]:
+    with _conn() as c:
+        row = c.execute("SELECT * FROM skills WHERE id=?", (skill_id,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["attrs"] = json.loads(d["attrs"])
+    return d
+
+
+def list_skills(character_id: int) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute("SELECT id FROM skills WHERE character_id=? ORDER BY id",
+                         (character_id,)).fetchall()
+    return [get_skill(r["id"]) for r in rows]
+
+
+def remove_skill(character_id: int, skill_id: int) -> bool:
+    with _conn() as c:
+        cur = c.execute("DELETE FROM skills WHERE id=? AND character_id=?",
+                        (skill_id, character_id))
+    return cur.rowcount > 0
+
+
+# ------------------------------------------------ progression: attr points ---
+
+def spend_attr_points(character_id: int, allocation: dict) -> dict:
+    """Spend saved attribute points, +1 per point, capped at STAT_CAP.
+
+    `allocation` maps ability -> points, e.g. {"str": 2, "con": 2}.
+    Raises ValueError on overspend, unknown ability, or cap violations.
+    """
+    char = get_character(character_id)
+    total = sum(int(v) for v in allocation.values())
+    if total < 1:
+        raise ValueError("nothing to allocate")
+    if total > char.get("attr_points", 0):
+        raise ValueError(f"only {char.get('attr_points', 0)} points available")
+    sets, vals = [], []
+    for ab, pts in allocation.items():
+        ab = ab.lower()
+        if ab not in ABILITIES:
+            raise ValueError(f"unknown ability {ab!r}")
+        pts = int(pts)
+        if pts < 0:
+            raise ValueError("points must be positive")
+        if char[ab] + pts > STAT_CAP:
+            raise ValueError(f"{ab.upper()} would exceed the cap of {STAT_CAP}")
+        sets.append(f"{ab} = {ab} + ?")
+        vals.append(pts)
+    with _conn() as c:
+        c.execute(
+            f"UPDATE characters SET {', '.join(sets)}, attr_points = attr_points - ?, "
+            f"updated_at = ? WHERE id = ?",
+            (*vals, total, _now(), character_id))
+    return get_character(character_id)

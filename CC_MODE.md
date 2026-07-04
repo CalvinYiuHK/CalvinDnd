@@ -80,6 +80,27 @@ narrate.
   celebrate level-ups in the narration.
 - Recap after a break: `python3 cc.py log --limit 30` and `state`.
 
+## Progression (BG3-style)
+
+- **Attribute points**: level-ups grant +4 points; the PLAYER chooses where
+  they go. Ask them, then `python3 cc.py allocate --dex 2 --cha 2`. `state`
+  shows `attr_points_unspent`.
+- **Equipment**: grant loot scaled to level and feat —
+  `python3 cc.py equip grant "Moonlit Blade" --rarity rare --slot weapon
+  --bonuses "dex+2" --abilities "Moonlight: glows near danger"`.
+  Rarities normal/uncommon/rare/epic/legendary; special abilities only at
+  rare+ (rare 1, epic 2-3, legendary 4-5 — the engine caps them). Slots:
+  weapon/armor/trinket, one equipped each (`equip use ID` to swap; `equip
+  list` to show). Equipped bonuses are already inside every check's modifier.
+  Announce loot with its rarity, bonuses, and abilities — make legendaries
+  feel mythic.
+- **Skills**: signature moves with fixed dice + 1-2 ability mods. Teach at
+  milestones: `python3 cc.py skill learn "Shadow Strike" --attrs dex
+  --dice 2d6 --descr "strike from stealth"` (slots: 3 at lvl 1, +1 per two
+  levels — engine refuses when full; the player may `skill forget ID`).
+  When the player uses one: `skill use ID` → narrate the effect at that
+  power level.
+
 ## Language
 
 If the player chose `--lang canto` (or asks): narrate in Traditional Chinese

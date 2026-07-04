@@ -330,3 +330,21 @@ def roll_display(label: str, detail: str, total: int, nat: int | None = None,
     else:
         verdict = ""
     print(f"    {SHADOW}→{RESET} {detail}{verdict}")
+
+
+# ------------------------------------------------------------ rarity colors --
+
+RARITY_COLORS = {
+    "normal": _fg(250, "\033[37m"),      # plain steel
+    "uncommon": _fg(114, "\033[32m"),    # green
+    "rare": _fg(75, "\033[34m"),         # blue
+    "epic": _fg(135, "\033[35m"),        # purple
+    "legendary": _fg(214, "\033[33m"),   # burning orange-gold
+}
+
+
+def rarity(name: str, tier: str) -> str:
+    """Color an item name by its rarity tier; legendary also gets bold."""
+    color = RARITY_COLORS.get(tier, RARITY_COLORS["normal"])
+    weight = BOLD if tier in ("epic", "legendary") else ""
+    return f"{weight}{color}{name}{RESET}"

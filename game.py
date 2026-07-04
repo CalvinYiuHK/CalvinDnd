@@ -70,9 +70,13 @@ NAME = ui.NAME  # the hero's name — matches the narration highlight
 
 
 def _stat(char: dict, key: str) -> str:
-    mod = ability_mod(char[key])
+    bonus = db.equipment_bonuses(char["id"]).get(key, 0)
+    eff = char[key] + bonus
+    mod = ability_mod(eff)
     color = ui.MOSS if mod > 0 else ui.BLOOD if mod < 0 else DIM
-    return f"{DIM}{key.upper()}{RESET} {char[key]:>2} {color}({mod:+d}){RESET}"
+    gear = (f"{ui.MOSS}{bonus:+d}{RESET}" if bonus > 0
+            else f"{ui.BLOOD}{bonus:+d}{RESET}" if bonus else "")
+    return f"{DIM}{key.upper()}{RESET} {char[key]:>2}{gear} {color}({mod:+d}){RESET}"
 
 
 def show_sheet(char: dict) -> None:
@@ -93,6 +97,23 @@ def show_sheet(char: dict) -> None:
           f"{ui.ARCANE}↻ {char.get('rerolls', 0)}{RESET}   {DIM}[{lang}]{RESET}")
     print(f"  {'   '.join(stats[:3])}")
     print(f"  {'   '.join(stats[3:])}")
+    pts = char.get("attr_points", 0)
+    if pts:
+        print(f"  {ui.GOLD}◆ {pts} unspent attribute points{RESET} {DIM}— /train to spend{RESET}")
+    gear = db.list_equipment(char["id"])
+    equipped = [e for e in gear if e["equipped"]]
+    if equipped:
+        line = ", ".join(f"{ui.rarity(e['name'], e['rarity'])}"
+                         f"{DIM}({e['slot']}{''.join(f' {k.upper()}{v:+d}' for k, v in e['bonuses'].items())}){RESET}"
+                         for e in equipped)
+        print(f"  {DIM}Gear{RESET} {line}"
+              + (f" {DIM}(+{len(gear) - len(equipped)} in pack){RESET}" if len(gear) > len(equipped) else ""))
+    skills = db.list_skills(char["id"])
+    if skills:
+        line = ", ".join(f"{ui.AMBER}{s['name']}{RESET}"
+                         f"{DIM}({s['dice']}+{'+'.join(a.upper() for a in s['attrs'])}){RESET}"
+                         for s in skills)
+        print(f"  {DIM}Skills{RESET} {line}  {DIM}(s1-s{len(skills)} to use){RESET}")
     print(f"  {DIM}Pack{RESET} {inv_str}")
     print(ui.rule())
 
@@ -213,6 +234,9 @@ HELP = f"""
   /stats       show your character sheet
   /inventory   show your inventory
   /log         show recent events (rolls, story beats)
+  /gear        equipment (g2 = equip item 2) — rarity colors, abilities
+  /skills      skill slots (s2 = use skill 2 in the story, f2 = forget)
+  /train       spend unspent attribute points (+4 per level-up)
   /roll 2d6+1  roll dice yourself, outside the story
   /lang        switch story language (English ↔ 廣東話)
   /backend     switch the AI engine running the GM (claude / gemini)
@@ -221,6 +245,61 @@ HELP = f"""
   /quit        save and exit — pick the same hero later to resume the story
 Anything else you type is your action, spoken to the Game Master.
 """
+
+
+def allocate_points(cid: int) -> None:
+    """Interactive +1-per-point attribute allocation (BG3-style level-up)."""
+    order = ["str", "dex", "con", "int", "wis", "cha"]
+    while True:
+        char = db.get_character(cid)
+        pts = char.get("attr_points", 0)
+        if pts < 1:
+            break
+        print(f"\n{ui.GOLD}◆ Level-up training — {pts} attribute "
+              f"point{'s' if pts != 1 else ''} to spend (+1 each, max {db.STAT_CAP}):{RESET}")
+        print("  " + "   ".join(f"{a.upper()} {char[a]}" for a in order))
+        raw = prompt("Add a point to which? (str/dex/con/int/wis/cha, "
+                     "'str 2' for two, or 'later'):").lower().split()
+        if not raw or raw[0] in ("later", "done", "skip", "q"):
+            print(f"{DIM}Saved — /train any time to spend them.{RESET}")
+            break
+        ab = raw[0][:3]
+        amount = int(raw[1]) if len(raw) > 1 and raw[1].isdigit() else 1
+        try:
+            char = db.spend_attr_points(cid, {ab: amount})
+            print(f"{GREEN}{ab.upper()} is now {char[ab]}"
+                  f" ({ability_mod(char[ab]):+d}).{RESET}")
+        except ValueError as e:
+            print(f"{RED}{e}{RESET}")
+
+
+def show_gear(cid: int) -> None:
+    gear = db.list_equipment(cid)
+    if not gear:
+        print(f"  {DIM}(no equipment yet — the story will provide){RESET}")
+        return
+    for i, e in enumerate(gear, 1):
+        bon = " ".join(f"{k.upper()}{v:+d}" for k, v in e["bonuses"].items())
+        mark = f"{GREEN}●{RESET}" if e["equipped"] else f"{DIM}○{RESET}"
+        print(f"  {mark} {i}. {ui.rarity(e['name'], e['rarity'])} "
+              f"{DIM}[{e['rarity']} {e['slot']}]{RESET} {GREEN}{bon}{RESET}")
+        for ab in e["abilities"]:
+            print(f"        {ui.GOLD}✧{RESET} {ab}")
+    print(f"{DIM}  Type g2 to equip item 2 (swaps within its slot).{RESET}")
+
+
+def show_skills(cid: int) -> None:
+    char = db.get_character(cid)
+    skills = db.list_skills(cid)
+    print(f"  {DIM}Skill slots {len(skills)}/{db.max_skill_slots(char['level'])}{RESET}")
+    if not skills:
+        print(f"  {DIM}(none yet — trainers and milestones teach them){RESET}")
+        return
+    for i, sk in enumerate(skills, 1):
+        tags = "+".join(a.upper() for a in sk["attrs"])
+        print(f"  {i}. {ui.AMBER}{ui.BOLD}{sk['name']}{RESET} "
+              f"{ui.ARCANE}({sk['dice']} + {tags}){RESET}  {DIM}{sk['descr']}{RESET}")
+    print(f"{DIM}  Type s1-s{len(skills)} in the story to use one; f2 to forget skill 2.{RESET}")
 
 
 def game_loop(cid: int) -> None:
@@ -251,15 +330,20 @@ def game_loop(cid: int) -> None:
                if char["race"] != "—" else f"{char['name']}, {char['class']},")
         opener = f"[Begin the adventure. {who} {scen['opener']}]"
 
-    def gm_turn(text: str = "", choice: int | None = None, power: bool = False) -> None:
+    def gm_turn(text: str = "", choice: int | None = None, power: bool = False,
+                skill: int | None = None) -> None:
         try:
-            if choice is not None:
+            if skill is not None:
+                gm.use_skill(skill)
+            elif choice is not None:
                 gm.play_choice(choice, power=power)
             else:
                 gm.send(text)
         except RuntimeError as e:
             print(f"\n{RED}The Game Master stumbled: {e}{RESET}")
             print(f"{DIM}Your progress is saved — just try your action again.{RESET}")
+        if db.get_character(cid).get("attr_points", 0) > 0:
+            allocate_points(cid)
 
     try:
         gm_turn(opener)
@@ -282,6 +366,32 @@ def game_loop(cid: int) -> None:
                     and 1 <= int(pm[1]) <= len(gm.choices)):
                 gm_turn(choice=int(pm[1]) - 1, power=True)
                 continue
+            # s2 = use skill 2 as this turn's action
+            if len(pm) == 2 and pm[0] == "s" and pm[1].isdigit():
+                gm_turn(skill=int(pm[1]) - 1)
+                continue
+            # g2 = equip gear 2 · f2 = forget skill 2
+            if len(pm) == 2 and pm[0] == "g" and pm[1].isdigit():
+                gear = db.list_equipment(cid)
+                n = int(pm[1])
+                if 1 <= n <= len(gear):
+                    item = db.equip_item(cid, gear[n - 1]["id"])
+                    print(f"{GREEN}Equipped {ui.rarity(item['name'], item['rarity'])}"
+                          f"{GREEN}.{RESET}")
+                else:
+                    print(f"{DIM}No gear #{n} — /gear to list.{RESET}")
+                continue
+            if len(pm) == 2 and pm[0] == "f" and pm[1].isdigit():
+                skills = db.list_skills(cid)
+                n = int(pm[1])
+                if 1 <= n <= len(skills):
+                    sure = prompt(f"Forget {skills[n - 1]['name']}? (y/N)").lower()
+                    if sure == "y":
+                        db.remove_skill(cid, skills[n - 1]["id"])
+                        print(f"{DIM}Forgotten. A slot is free.{RESET}")
+                else:
+                    print(f"{DIM}No skill #{n} — /skills to list.{RESET}")
+                continue
             cmd = action.lower()
             if cmd in ("/quit", "/exit", "/q"):
                 print(f"{DIM}Your progress is saved. Farewell, adventurer.{RESET}")
@@ -291,6 +401,18 @@ def game_loop(cid: int) -> None:
                 continue
             if cmd in ("/stats", "/sheet"):
                 show_sheet(db.get_character(cid))
+                continue
+            if cmd in ("/gear", "/equipment", "/g"):
+                show_gear(cid)
+                continue
+            if cmd in ("/skills", "/sk"):
+                show_skills(cid)
+                continue
+            if cmd in ("/train", "/allocate", "/points"):
+                if db.get_character(cid).get("attr_points", 0) > 0:
+                    allocate_points(cid)
+                else:
+                    print(f"{DIM}No unspent attribute points — level up to earn more.{RESET}")
                 continue
             if cmd in ("/inventory", "/inv", "/i"):
                 inv = db.get_inventory(cid)
