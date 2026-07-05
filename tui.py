@@ -154,24 +154,33 @@ class Fateweaver(App):
 
     TITLE = "Fateweaver"
     SUB_TITLE = "any story, real dice"
-    BINDINGS = [("ctrl+q", "quit_game", "Quit")]
+    BINDINGS = [
+        ("ctrl+q", "quit_game", "Quit"),
+        ("f1", "layout('codex')", "Codex"),
+        ("f2", "layout('deck')", "Deck"),
+        ("f3", "layout('stage')", "Stage"),
+    ]
+
+    LAYOUTS = ("codex", "deck", "stage")
 
     CSS = """
     #main { height: 1fr; }
-    #story { width: 2fr; border: round $primary 30%; padding: 0 1; }
-    #side-tabs { width: 42; }
+    #story { width: 2fr; padding: 0 2; background: $surface; border: none; }
+    #side-tabs { width: 40; }
     #side-tabs TabPane { padding: 0 1; }
+    #ribbon { height: 1; padding: 0 2; background: $surface-darken-1; display: none; }
+    #fateline { height: 1; padding: 0 2; color: $text-muted; display: none; }
     #choices { height: auto; padding: 0 1; }
     .choice-row { height: auto; }
-    .choice-row Button { margin: 0 1 0 0; }
+    .choice-row Button { margin: 0 1 0 0; border: none; height: 1; }
     .choice-main { width: 1fr; content-align: left middle; }
-    #player-input { margin: 0 1; }
+    #player-input { margin: 0 1; border: tall $surface-lighten-1; }
     #cmdbar { height: auto; padding: 0 1; }
-    #cmdbar Button { margin: 0 1 0 0; min-width: 6; }
-    .gear-item, .skill-item { width: 100%; margin: 0 0 0 0; content-align: left middle; }
-    .skill-forget { min-width: 10; }
+    #cmdbar Button { margin: 0 1 0 0; min-width: 6; border: none; height: 1; }
+    .gear-item, .skill-item { width: 100%; content-align: left middle; border: none; height: auto; }
+    .skill-forget { min-width: 10; border: none; height: 1; }
     #dialog {
-        align: center middle; background: $surface; border: thick $primary;
+        align: center middle; background: $surface; border: thick $primary 50%;
         padding: 1 2; width: 80; height: auto; margin: 4 8;
     }
     #dialog-buttons { height: auto; align-horizontal: center; }
@@ -179,6 +188,28 @@ class Fateweaver(App):
     #alloc-row { height: auto; align-horizontal: center; }
     #alloc-row Button { margin: 0 1; min-width: 10; }
     ConfirmScreen, AllocateScreen { align: center middle; }
+
+    /* ── F1 · Codex — a book you play: one centered column, no chrome ── */
+    .layout-codex #story { max-width: 100; margin: 0 4; padding: 1 4; }
+    .layout-codex #main { align-horizontal: center; }
+    .layout-codex #side-tabs { width: 30; }
+    .layout-codex #choices { padding: 0 5; }
+    .layout-codex .choice-main { background: transparent; border-left: thick #d7af5f; }
+    .layout-codex #cmdbar { align-horizontal: center; }
+
+    /* ── F2 · Deck — command deck: cards, keycaps, the fate line ── */
+    .layout-deck #story { border: round $primary 20%; background: transparent; }
+    .layout-deck #side-tabs { width: 40; }
+    .layout-deck #fateline { display: block; }
+
+    /* ── F3 · Stage — cinematic: ribbon up top, sidebar only in combat ── */
+    .layout-stage #ribbon { display: block; }
+    .layout-stage #side-tabs { display: none; }
+    .layout-stage.has-foes #side-tabs { display: block; width: 44; }
+    .layout-stage #story { width: 1fr; padding: 0 6; background: transparent; }
+    .layout-stage #choices { layout: horizontal; }
+    .layout-stage .choice-row { width: 1fr; layout: vertical; margin: 0 1; }
+    .layout-stage .choice-row Button { width: 100%; margin: 0; }
     """
 
     def __init__(self, cid: int):
@@ -192,6 +223,7 @@ class Fateweaver(App):
     # ---------------------------------------------------------- layout -------
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
+        yield Static(id="ribbon")
         with Horizontal(id="main"):
             yield RichLog(id="story", wrap=True, markup=False, auto_scroll=True)
             with TabbedContent(initial="tab-hero", id="side-tabs"):
@@ -207,6 +239,7 @@ class Fateweaver(App):
                         yield Static(id="battle")
         with Vertical(id="choices"):
             pass
+        yield Static(id="fateline")
         yield Input(placeholder="Say or do anything… (or click a choice above)",
                     id="player-input")
         with Horizontal(id="cmdbar"):
@@ -218,6 +251,7 @@ class Fateweaver(App):
 
     async def on_mount(self) -> None:
         gm_mod.CONFIRM = self._confirm_from_engine
+        self._apply_layout(db.get_setting("tui_layout", "deck"))
         await self.refresh_side()
         char = db.get_character(self.cid)
         scen = scen_mod.SCENARIOS.get(char.get("scenario") or "tavern",
@@ -233,9 +267,31 @@ class Fateweaver(App):
             opener = f"[Begin the adventure. {who} {scen['opener']}]"
         self.run_turn(opener)
 
+    # ----------------------------------------------------------- layouts -----
+    def _apply_layout(self, name: str) -> None:
+        if name not in self.LAYOUTS:
+            name = "deck"
+        for l in self.LAYOUTS:
+            self.screen.remove_class(f"layout-{l}")
+        self.screen.add_class(f"layout-{name}")
+        self.layout_name = name
+
+    def action_layout(self, name: str) -> None:
+        self._apply_layout(name)
+        db.set_setting("tui_layout", name)
+        titles = {"codex": "Codex — a book you play",
+                  "deck": "Deck — the command table",
+                  "stage": "Stage — cinematic"}
+        self.notify(titles.get(name, name), title=f"Layout: {name} "
+                    f"(F1 codex · F2 deck · F3 stage)", timeout=3)
+
     # ------------------------------------------------------- engine bridge ---
     def log_line(self, line: str) -> None:
         self.query_one("#story", RichLog).write(ansi(line))
+        # the fate line (Deck layout): pin the latest dice/damage beat
+        plain = ansi(line).plain.strip()
+        if any(g in plain for g in ("⚅", "⚔", "🩸", "🎲")) and plain:
+            self.query_one("#fateline", Static).update(ansi("  " + line.strip()))
 
     def _confirm_from_engine(self, question: str) -> bool:
         """Called from the GM worker thread; blocks it on a dialog."""
@@ -315,6 +371,17 @@ class Fateweaver(App):
         pts = char.get("attr_points", 0)
         if pts:
             lines.append(f" {ui.GOLD}◆ {pts} points to train{ui.RESET}")
+
+        # status ribbon (Stage layout): the whole sheet in one quiet line
+        ribbon = (f"{ui.NAME}{char['name']}{ui.RESET}"
+                  f"{ui.SHADOW} · lvl {char['level']}{ui.RESET}   "
+                  f"{ui.hp_bar(char['hp'], char['max_hp'], 12)}   "
+                  f"{ui.GOLD}⛁ {char['gold']}{ui.RESET}  "
+                  f"{ui.ARCANE}✦ {char['xp']}/{nxt}{ui.RESET}  "
+                  f"{ui.GOLD}⚡{char.get('power_rolls', 0)}{ui.RESET}"
+                  f"{ui.ARCANE}↻{char.get('rerolls', 0)}{ui.RESET}"
+                  + (f"  {ui.GOLD}◆{pts}{ui.RESET}" if pts else ""))
+        self.query_one("#ribbon", Static).update(ansi(ribbon))
         inv = db.get_inventory(self.cid)
         if inv:
             lines.append(f" {ui.SHADOW}Pack:{ui.RESET} " +
@@ -383,6 +450,7 @@ class Fateweaver(App):
             if not self._had_foes:
                 tabs.active = "tab-foes"
             self._had_foes = True
+            self.screen.add_class("has-foes")
         else:
             battle.update(ansi(f"{ui.SHADOW}(no active enemies — for now){ui.RESET}"))
             try:
@@ -390,6 +458,7 @@ class Fateweaver(App):
             except Exception:
                 pass
             self._had_foes = False
+            self.screen.remove_class("has-foes")
 
     # ------------------------------------------------------- choice buttons --
     async def set_choices(self, choices: list) -> None:
