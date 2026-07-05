@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { api, gameSocket } from "./api.js";
 import Feed from "./Feed.jsx";
 import Sidebar from "./Sidebar.jsx";
+import { Avatar } from "./icons.jsx";
 
 const ABILITIES = ["str", "dex", "con", "int", "wis", "cha"];
 
@@ -103,7 +104,7 @@ function AllocateModal({ state, onDone, onError }) {
   );
 }
 
-export default function Game({ heroId, onExit, onError }) {
+export default function Game({ heroId, onExit, onError, themePicker }) {
   const [state, setState] = useState(null);
   const [events, setEvents] = useState([]);
   const [choices, setChoices] = useState([]);
@@ -186,6 +187,7 @@ export default function Game({ heroId, onExit, onError }) {
     <>
       <div className="topbar">
         <span className="wordmark"><span className="die">⚅</span>Fateweaver</span>
+        <Avatar name={state.name} size={26} className="topbar-avatar" />
         <span className="who">{state.name} · lvl {state.level}</span>
         <span className="spacer" />
         <span className="tokens">
@@ -193,6 +195,7 @@ export default function Game({ heroId, onExit, onError }) {
           <span className="tok arc">↻ <b>{state.rerolls}</b></span>
           <span className="tok">◈ <b>{state.gold}</b></span>
         </span>
+        {themePicker}
         <button className="linkish" onClick={onExit}>⟵ heroes</button>
       </div>
 

@@ -56,6 +56,49 @@ def _confirm_dispatch(prompt: str) -> bool:
 
 gm_mod.CONFIRM = _confirm_dispatch
 
+# Demo mode (TAVERN_FAKE_GM=1): a canned GM for screenshots, UI work, and
+# offline demos — no `claude` CLI calls, but the real dice/DB still run.
+if os.environ.get("TAVERN_FAKE_GM"):
+    _FAKE_REPLIES = [
+        (
+            "The trapdoor groans open and lamplight spills down worn steps. "
+            "Below, between racks of dusty casks, **Gnash** the goblin crouches "
+            "over a broken lockbox, ears twitching. He has not seen you yet — "
+            "but the stair under your boot just creaked.\n"
+            "[[enemy: Gnash | level 1 | str 12 dex 14 con 10 int 8 wis 8 cha 6 | "
+            "gear: Rusty Cleaver (normal weapon); Patchy Hood (normal armor) | "
+            "skills: Frenzy (1d6+STR): a wild flurry of chops]]\n"
+            "[[equip: Lucky Pin | rare | trinket | dex+2 | Glint: once a day, "
+            "the pin flashes and a missed step goes unnoticed]]\n"
+            "[[choice: Rush Gnash before he turns around | STR | DC 12]]\n"
+            "[[choice: Slip from cask to cask, closing quietly | DEX* | DC 13]]\n"
+            "[[choice: Call out a greeting and offer to talk | none]]"
+        ),
+        (
+            "Wood cracks and dust rains from the beams as the fight erupts!\n"
+            "[[damage: enemy | 1d6 | str | Charging blow]]\n"
+            "[[sheet: xp=+50 | First blood in the cellar]]\n"
+            "[[reward: power x1 | A daring opening move]]\n"
+            "[[choice: Press the attack while he reels | STR | DC 12]]\n"
+            "[[choice: Kick a cask loose to pin him | DEX | DC 11]]\n"
+            "[[choice: Demand his surrender | CHA | DC 10]]"
+        ),
+        (
+            "Gnash spits, snarls, and weighs his chances against you.\n"
+            "[[choice: Finish this | STR | DC 12]]\n"
+            "[[choice: Circle for an opening | DEX | DC 11]]\n"
+            "[[choice: Let him crawl away | none]]"
+        ),
+    ]
+    _fake_n = {"n": 0}
+
+    def _fake_invoke(self, prompt):
+        i = min(_fake_n["n"], len(_FAKE_REPLIES) - 1)
+        _fake_n["n"] += 1
+        return _FAKE_REPLIES[i]
+
+    GameMaster._invoke = _fake_invoke
+
 
 # ------------------------------------------------------------------ helpers
 def _events_after(character_id: int, after_id: int, limit: int = 200) -> list[dict]:

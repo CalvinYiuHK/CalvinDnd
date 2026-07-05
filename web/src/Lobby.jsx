@@ -1,5 +1,6 @@
 import React from "react";
 import { api } from "./api.js";
+import { Avatar } from "./icons.jsx";
 
 export default function Lobby({ boot, onPlay, onCreate, onDeleted, onError }) {
   const scenEmoji = Object.fromEntries(boot.scenarios.map((s) => [s.key, s.emoji]));
@@ -19,9 +20,9 @@ export default function Lobby({ boot, onPlay, onCreate, onDeleted, onError }) {
       {boot.heroes.length > 0 && <div className="rowlabel">Resume a thread</div>}
       {boot.heroes.map((h) => (
         <button key={h.id} className="hero-card" onClick={() => onPlay(h.id)}>
-          <span className="h-emoji">{scenEmoji[h.scenario] || "🎲"}</span>
+          <Avatar name={h.name} size={44} />
           <span>
-            <div className="h-name">{h.name}</div>
+            <div className="h-name">{h.name} <span className="h-emoji">{scenEmoji[h.scenario] || "🎲"}</span></div>
             <div className="h-sub">
               level {h.level} {h.race !== "—" ? `${h.race} ` : ""}{h.class}
               {h.lang === "canto" ? " · 廣東話" : ""}

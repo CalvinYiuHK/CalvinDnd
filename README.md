@@ -32,8 +32,15 @@ Foes tabs — enemy ANSI art, tiered stat visibility, and live HP bars included.
 Reroll offers and level-up point allocation are dialogs; hero creation is a
 full wizard (story pick, race/background, stat rolling with rerolls,
 English/廣東話). First run installs `fastapi`+`uvicorn` into `.venv` and
-builds the frontend with npm; after that it starts instantly
-(`REBUILD=1 ./start-web.sh` to rebuild).
+the frontend ships prebuilt, so Node/npm are not needed to play
+(`REBUILD=1 ./start-web.sh` rebuilds it with npm ≥ 8).
+
+Three switchable looks ship with it — **⟐ Loom** (ink-dark, a golden
+fate-thread through the story), **☙ Grimoire** (aged parchment, oxblood
+drop caps), **◈ Nightglass** (frosted glass over deep blue) — switch live
+from the top bar; your pick is remembered. Player avatars are generated
+per-hero (DiceBear), and foes get matching fantasy icons
+(game-icons.net) beside their ANSI art.
 
 The TUI gives you a story pane and a **tabbed sidebar — Hero / Gear / Skills /
 Foes** — always in view: click gear to equip it, click a skill to use it (or

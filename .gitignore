@@ -4,3 +4,5 @@ tavern.db
 .env
 .venv/
 .claude/
+*.png
+.playwright-mcp/

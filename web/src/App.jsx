@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { api } from "./api.js";
+import { useTheme, ThemePicker } from "./theme.jsx";
 import Lobby from "./Lobby.jsx";
 import Create from "./Create.jsx";
 import Game from "./Game.jsx";
@@ -8,6 +9,7 @@ export default function App() {
   const [boot, setBoot] = useState(null);
   const [screen, setScreen] = useState({ name: "lobby" });
   const [err, setErr] = useState("");
+  const [theme, setTheme] = useTheme();
 
   const refresh = useCallback(() => {
     api.bootstrap().then(setBoot).catch((e) => setErr(String(e.message || e)));
@@ -55,7 +57,13 @@ export default function App() {
           heroId={screen.id}
           onExit={() => { refresh(); setScreen({ name: "lobby" }); }}
           onError={setErr}
+          themePicker={<ThemePicker theme={theme} setTheme={setTheme} />}
         />
+      )}
+      {screen.name !== "game" && (
+        <div style={{ position: "fixed", top: 14, right: 18, zIndex: 40 }}>
+          <ThemePicker theme={theme} setTheme={setTheme} />
+        </div>
       )}
       {err && <div className="errbar">{err}</div>}
     </div>
