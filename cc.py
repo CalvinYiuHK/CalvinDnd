@@ -287,6 +287,96 @@ def cmd_allocate(args) -> None:
     _out({"allocated": alloc, "state": _state(cid)})
 
 
+def _enemy_player_view(cid: int, e: dict) -> dict:
+    """What the player may know, tiered by level difference / inspect skills."""
+    c = db.get_character(cid)
+    words = ("inspect", "insight", "appraise", "analyz", "scan")
+    inspect = any(any(w in (sk["name"] + sk["descr"]).lower() for w in words)
+                  for sk in db.list_skills(cid))
+    diff = c["level"] - e["level"]
+    pct = round(100 * e["hp"] / max(1, e["max_hp"]))
+    if diff >= 0 or inspect:
+        return {"tier": "full", **{k: e[k] for k in
+                ("name", "level", "hp", "max_hp", "armor", "attrs", "gear", "skills")}}
+    if diff == -1:
+        top = sorted(e["attrs"], key=lambda a: -e["attrs"][a])[:2]
+        return {"tier": "partial", "name": e["name"], "level": e["level"],
+                "hp": e["hp"], "max_hp": e["max_hp"],
+                "attrs_visible": {a: e["attrs"][a] for a in top},
+                "gear_names": [g.split("(")[0].strip() for g in e["gear"]]}
+    if diff == -2:
+        top = max(e["attrs"], key=lambda a: e["attrs"][a])
+        return {"tier": "vague", "name": e["name"], "level": e["level"],
+                "hp_percent": pct, "strongest_attr": top}
+    return {"tier": "silhouette", "name": e["name"], "level": "???",
+            "hp_percent": pct}
+
+
+def cmd_enemy(args) -> None:
+    cid = _target(args)
+    if args.action == "spawn":
+        attrs = {}
+        import re as _re
+        for m in _re.finditer(r"(str|dex|con|int|wis|cha)\s*(\d+)", args.attrs or "", _re.I):
+            attrs[m.group(1).lower()] = int(m.group(2))
+        gear = [g.strip() for g in (args.gear or "").split(";") if g.strip()]
+        skl = [g.strip() for g in (args.skills or "").split(";") if g.strip()]
+        e = db.add_enemy(cid, args.name, args.level, attrs, gear, skl, args.armor)
+        db.log_event(cid, "enemy", f"{e['name']} appears (lvl {e['level']}, HP {e['max_hp']})")
+        _out({"enemy_full_for_gm": e, "player_view": _enemy_player_view(cid, e),
+              "hp_formula": "10 + 6x(level-1) + 2xCON_mod"})
+    elif args.action == "end":
+        _out({"encounter_ended": db.end_encounter(cid)})
+    else:
+        foes = db.list_enemies(cid)
+        _out({"enemies_full_for_gm": foes,
+              "player_views": [_enemy_player_view(cid, e) for e in foes]})
+
+
+def cmd_damage(args) -> None:
+    cid = _target(args)
+    c = db.get_character(cid)
+    attr = args.attr.lower()
+    if attr not in ABILITIES:
+        _fail(f"attr must be one of {ABILITIES}")
+    if args.crit:
+        r1, r2 = dice.roll(args.dice), dice.roll(args.dice)
+        dice_total = r1.total + r2.total
+        detail = f"{r1.detail()} + {r2.detail()} (CRIT x2)"
+    else:
+        r1 = dice.roll(args.dice)
+        dice_total = r1.total
+        detail = r1.detail()
+
+    if args.target == "enemy":
+        e = db.find_enemy(cid, args.by or "")
+        if e is None:
+            _fail("no active enemy — spawn one first")
+        mod = ability_mod(c[attr] + db.equipment_bonuses(cid).get(attr, 0))
+        dmg = db.damage_total(dice_total, mod, c["level"], e["armor"])
+        e = db.damage_enemy(e["id"], dmg)
+        db.log_event(cid, "damage", f"dealt {dmg} to {e['name']} ({e['hp']}/{e['max_hp']})")
+        _out({"dealt": dmg,
+              "formula": f"{dice_total} dice {mod:+d} {attr} +{c['level'] // 2} level -{e['armor']} armor (min 1)",
+              "dice_detail": detail, "enemy": e["name"],
+              "enemy_hp": f"{e['hp']}/{e['max_hp']}", "defeated": e["hp"] == 0,
+              "player_view": _enemy_player_view(cid, e)})
+    else:
+        e = db.find_enemy(cid, args.by or "")
+        e_attrs = e["attrs"] if e else {}
+        e_level = e["level"] if e else c["level"]
+        e_name = e["name"] if e else (args.by or "The foe")
+        mod = ability_mod(e_attrs.get(attr, 10))
+        armor = db.hero_armor(cid)
+        dmg = db.damage_total(dice_total, mod, e_level, armor)
+        c = db.adjust_character(cid, hp=-dmg)
+        db.log_event(cid, "damage", f"took {dmg} from {e_name} (HP {c['hp']}/{c['max_hp']})")
+        _out({"taken": dmg,
+              "formula": f"{dice_total} dice {mod:+d} {attr} +{e_level // 2} level -{armor} armor (min 1)",
+              "dice_detail": detail, "from": e_name,
+              "hero_hp": f"{c['hp']}/{c['max_hp']}", "hero_down": c["hp"] == 0})
+
+
 def cmd_log(args) -> None:
     cid = _target(args)
     _out({"log": db.get_log(cid, limit=args.limit)})
@@ -376,6 +466,26 @@ def main() -> None:
         p.add_argument(f"--{a}", type=int, default=0)
     p.add_argument("--id", type=int)
     p.set_defaults(fn=cmd_allocate)
+
+    p = sub.add_parser("enemy", help="combat: spawn/list/end enemies")
+    p.add_argument("action", choices=["spawn", "list", "end"])
+    p.add_argument("name", nargs="?", default="")
+    p.add_argument("--level", type=int, default=1)
+    p.add_argument("--attrs", default="", help="e.g. 'str 14 dex 12 con 13'")
+    p.add_argument("--armor", type=int, default=None)
+    p.add_argument("--gear", default="", help="semicolon-separated")
+    p.add_argument("--skills", default="", help="semicolon-separated")
+    p.add_argument("--id", type=int)
+    p.set_defaults(fn=cmd_enemy)
+
+    p = sub.add_parser("damage", help="apply the damage formula")
+    p.add_argument("target", choices=["enemy", "hero"])
+    p.add_argument("dice", help="e.g. 1d8, 2d6")
+    p.add_argument("--attr", default="str")
+    p.add_argument("--by", default="", help="enemy name (attacker or victim)")
+    p.add_argument("--crit", action="store_true", help="double the dice")
+    p.add_argument("--id", type=int)
+    p.set_defaults(fn=cmd_damage)
 
     p = sub.add_parser("log", help="recent events")
     p.add_argument("--limit", type=int, default=20)

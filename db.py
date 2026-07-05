@@ -103,6 +103,21 @@ def init_db() -> None:
                 FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS enemies (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                character_id INTEGER NOT NULL,
+                name         TEXT NOT NULL,
+                level        INTEGER NOT NULL DEFAULT 1,
+                attrs        TEXT NOT NULL DEFAULT '{}',
+                hp           INTEGER NOT NULL,
+                max_hp       INTEGER NOT NULL,
+                armor        INTEGER NOT NULL DEFAULT 0,
+                gear         TEXT NOT NULL DEFAULT '[]',
+                skills       TEXT NOT NULL DEFAULT '[]',
+                active       INTEGER NOT NULL DEFAULT 1,
+                FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS skills (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
                 character_id INTEGER NOT NULL,
@@ -489,3 +504,96 @@ def spend_attr_points(character_id: int, allocation: dict) -> dict:
             f"updated_at = ? WHERE id = ?",
             (*vals, total, _now(), character_id))
     return get_character(character_id)
+
+
+# ------------------------------------------------------------------ combat ---
+
+def enemy_max_hp(level: int, con_mod: int) -> int:
+    """Enemy HP formula: 10 + 6x(level-1) + 2xCON_mod, minimum 4."""
+    return max(4, 10 + 6 * (level - 1) + 2 * con_mod)
+
+
+def damage_total(dice_total: int, attr_mod: int, attacker_level: int,
+                 defender_armor: int) -> int:
+    """The damage formula, both directions:
+
+        damage = dice + attr_mod + attacker_level//2 - defender_armor, min 1
+    """
+    return max(1, dice_total + attr_mod + attacker_level // 2 - defender_armor)
+
+
+def hero_armor(character_id: int) -> int:
+    """Hero damage reduction: total bonus points on the equipped armor item."""
+    for e in list_equipment(character_id):
+        if e["equipped"] and e["slot"] == "armor":
+            return sum(abs(v) for v in e["bonuses"].values())
+    return 0
+
+
+def add_enemy(character_id: int, name: str, level: int, attrs: dict,
+              gear: list[str], skills: list[str], armor: Optional[int] = None) -> dict:
+    attrs = {a: int(attrs.get(a, 10)) for a in ABILITIES}
+    con_mod = (attrs["con"] - 10) // 2
+    hp = enemy_max_hp(level, con_mod)
+    if armor is None:
+        armor = level // 3
+    with _conn() as c:
+        cur = c.execute(
+            "INSERT INTO enemies (character_id, name, level, attrs, hp, max_hp, "
+            "armor, gear, skills, active) VALUES (?,?,?,?,?,?,?,?,?,1)",
+            (character_id, name.strip(), max(1, level), json.dumps(attrs),
+             hp, hp, max(0, armor), json.dumps(gear), json.dumps(skills)))
+        eid = cur.lastrowid
+    return get_enemy(eid)
+
+
+def get_enemy(enemy_id: int) -> Optional[dict]:
+    with _conn() as c:
+        row = c.execute("SELECT * FROM enemies WHERE id=?", (enemy_id,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["attrs"] = json.loads(d["attrs"])
+    d["gear"] = json.loads(d["gear"])
+    d["skills"] = json.loads(d["skills"])
+    d["active"] = bool(d["active"])
+    return d
+
+
+def list_enemies(character_id: int, active_only: bool = True) -> list[dict]:
+    q = "SELECT id FROM enemies WHERE character_id=?"
+    if active_only:
+        q += " AND active=1"
+    with _conn() as c:
+        rows = c.execute(q + " ORDER BY id", (character_id,)).fetchall()
+    return [get_enemy(r["id"]) for r in rows]
+
+
+def find_enemy(character_id: int, name: str) -> Optional[dict]:
+    """Active enemy by (partial, case-insensitive) name; falls back to first."""
+    active = list_enemies(character_id)
+    if not active:
+        return None
+    name = (name or "").strip().lower()
+    for e in active:
+        if name and name in e["name"].lower():
+            return e
+    return active[0]
+
+
+def damage_enemy(enemy_id: int, amount: int) -> dict:
+    """Apply damage; at 0 HP the enemy is marked defeated (inactive)."""
+    e = get_enemy(enemy_id)
+    new_hp = max(0, e["hp"] - max(0, amount))
+    with _conn() as c:
+        c.execute("UPDATE enemies SET hp=?, active=? WHERE id=?",
+                  (new_hp, 0 if new_hp == 0 else 1, enemy_id))
+    return get_enemy(enemy_id)
+
+
+def end_encounter(character_id: int) -> int:
+    """Deactivate all enemies (fled / spared / scene over). Returns count."""
+    with _conn() as c:
+        cur = c.execute("UPDATE enemies SET active=0 WHERE character_id=? AND active=1",
+                        (character_id,))
+    return cur.rowcount

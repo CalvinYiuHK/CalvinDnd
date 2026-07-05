@@ -50,6 +50,15 @@ bonuses and — at rare and above — special abilities (rare 1, legendary up to
 5); and you learn **skills** with fixed dice + your ability mods (`s1` to use
 one as your action, like casting in BG3). `/gear`, `/skills`, `/train`.
 
+**Combat** — when a fight starts the GM must stat every foe in full (level,
+six attributes, armor, gear, skills); their HP comes from a formula
+(`10 + 6×(level−1) + 2×CON_mod`). What *you* see scales with the level gap —
+everything at their level or above (or with an inspect-type skill), then
+partial → vague → silhouette. Every landed hit, both directions, prints the
+full math and the target's HP bar:
+`damage = dice + attr mod + level÷2 − armor (min 1)`, crits double the dice.
+`/inspect` sizes up the field.
+
 **CC mode** — play from the Claude phone app: point a Claude chat (with code
 execution) at this repo and `CC_MODE.md`. Chat-Claude becomes the GM and runs
 `cc.py` in its sandbox for all dice, stats, and tokens — same honest numbers,

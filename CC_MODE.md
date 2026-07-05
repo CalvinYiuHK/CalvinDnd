@@ -101,6 +101,24 @@ narrate.
   When the player uses one: `skill use ID` → narrate the effect at that
   power level.
 
+## Combat
+
+- The moment a fight starts, give EVERY foe a full stat block:
+  `python3 cc.py enemy spawn "Bog Witch" --level 3 --attrs "str 8 dex 12
+  con 14 int 16 wis 15 cha 13" --gear "Gnarled Staff (rare weapon)"
+  --skills "Hex (2d6+INT): withering curse"`. The engine computes HP
+  (`10 + 6x(level-1) + 2xCON_mod`) and returns two views: the full block
+  (for YOU) and `player_view` — show the player ONLY that. It tiers by level
+  difference: full at their level or below (or with an inspect-type skill),
+  then partial → vague → silhouette.
+- When a hit LANDS (after the check), never invent numbers:
+  `python3 cc.py damage enemy 1d8 --attr dex [--crit]` or
+  `python3 cc.py damage hero 2d6 --attr str --by "Bog Witch"`.
+  Formula: `damage = dice + attacker attr mod + attacker_level//2 −
+  defender armor (min 1)`; crit doubles the dice. Show the player the math
+  line and the target's HP every time, both directions. `defeated` /
+  `hero_down` tell you when someone drops. `enemy end` closes the fight.
+
 ## Language
 
 If the player chose `--lang canto` (or asks): narrate in Traditional Chinese
