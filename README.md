@@ -22,12 +22,15 @@ installed and logged in (`claude` on your PATH).
 ./start.sh --classic      # zero-dependency classic prompt mode
 ```
 
-The TUI gives you a story pane, a live character panel (HP bar, stats, gear,
-skills, tokens), **clickable choice buttons** (with ⚡ power variants), one-click
-skills, dialogs for rerolls and level-up training — and a **battle panel with
-ANSI art** for every enemy: preset creatures (rats, goblins, dragons, witches,
-ghosts…) matched by name, and one-of-a-kind generated art for anything new,
-stored so the same foe always wears the same face.
+The TUI gives you a story pane and a **tabbed sidebar — Hero / Gear / Skills /
+Foes** — always in view: click gear to equip it, click a skill to use it (or
+forget it), and the **Foes tab** shows every enemy's ANSI art, stats, and live
+HP, grabbing focus the moment a fight starts. Choices are big clickable rows
+with **highlighted stat badges** (trait chip, your modifier, and the `need N+`
+target), each with a ⚡+10 power variant. Reroll offers and level-up training
+are dialogs. Enemy art: preset creatures (rats, goblins, dragons, witches,
+ghosts…) matched by name — Chinese names too — and one-of-a-kind generated art
+for anything new, stored so the same foe always wears the same face.
 
 ## How a turn plays
 

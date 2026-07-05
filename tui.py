@@ -4,10 +4,12 @@
 Run `./start.sh` (or `python3 tui.py`) for the full experience:
 
   * story log with the GM's colored narration
-  * a live character panel — HP bar, XP, gold, tokens, stats, gear, skills
-  * clickable choice buttons after every GM turn (with ⚡ power variants)
-  * skill buttons, one click to use a signature move
-  * a battle panel with ANSI art for every enemy (presets + generated)
+  * a tabbed sidebar — Hero / Gear / Skills / Foes — always in view:
+    click gear to equip it, click skills to use or forget them, and watch
+    every enemy's ANSI art and HP live in the Foes tab (it takes focus the
+    moment a fight starts)
+  * big clickable choice buttons with highlighted stat badges
+    (trait, your modifier, and the d20 target as colored chips)
   * dialogs for rerolls and level-up attribute allocation
 
 The classic prompt game (`python3 game.py`) remains available with zero
@@ -25,7 +27,8 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Footer, Header, Input, RichLog, Static
+from textual.widgets import (Button, Footer, Header, Input, RichLog, Static,
+                             TabbedContent, TabPane)
 
 import art
 import db
@@ -38,6 +41,15 @@ import ui
 
 def ansi(text: str) -> Text:
     return Text.from_ansi(text)
+
+
+# chip styles for the choice badges
+_POS = "bold black on #87af5f"      # buffed check — green chip
+_NEG = "bold white on #af5f5f"      # debuffed check — red chip
+_NEU = "bold black on #5fafd7"      # neutral check — blue chip
+_NEED = "bold #ffd75f"              # the d20 target
+_NUM = "bold black on #ffaf5f"      # choice number chip
+_NOROLL = "dim"
 
 
 class _LogWriter(io.TextIOBase):
@@ -53,16 +65,24 @@ class _LogWriter(io.TextIOBase):
     def isatty(self) -> bool:
         return False  # engine skips spinners/animations under the TUI
 
+    def _emit(self, line: str) -> None:
+        # redirect_stdout is process-global: writes can arrive from the GM
+        # worker thread (usual) or the app thread itself (stray prints).
+        try:
+            self.app.call_from_thread(self.app.log_line, line)
+        except RuntimeError:
+            self.app.log_line(line)
+
     def write(self, s: str) -> int:
         self._buf += s
         while "\n" in self._buf:
             line, self._buf = self._buf.split("\n", 1)
-            self.app.call_from_thread(self.app.log_line, line)
+            self._emit(line)
         return len(s)
 
     def flush(self) -> None:
         if self._buf:
-            self.app.call_from_thread(self.app.log_line, self._buf)
+            self._emit(self._buf)
             self._buf = ""
 
 
@@ -129,30 +149,6 @@ class AllocateScreen(ModalScreen[None]):
             self.refresh_title()
 
 
-class PickerScreen(ModalScreen[int | None]):
-    """A titled list of clickable options; returns the picked index."""
-
-    def __init__(self, title: str, options: list[str]):
-        super().__init__()
-        self.title_text, self.options = title, options
-
-    def compose(self) -> ComposeResult:
-        with Vertical(id="dialog"):
-            yield Static(ansi(self.title_text), id="question")
-            with VerticalScroll(id="picker-list"):
-                for i, opt in enumerate(self.options):
-                    yield Button(ansi(opt).plain[:70], id=f"pick-{i}")
-            with Horizontal(id="dialog-buttons"):
-                yield Button("Close", id="pick-cancel")
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        bid = event.button.id or ""
-        if bid == "pick-cancel":
-            self.dismiss(None)
-        elif bid.startswith("pick-"):
-            self.dismiss(int(bid.split("-")[1]))
-
-
 class Fateweaver(App):
     """The Fateweaver TUI."""
 
@@ -163,15 +159,17 @@ class Fateweaver(App):
     CSS = """
     #main { height: 1fr; }
     #story { width: 2fr; border: round $primary 30%; padding: 0 1; }
-    #side { width: 34; }
-    #sheet { border: round $secondary 30%; padding: 0 1; height: auto; }
-    #battle { border: round red 40%; padding: 0 1; height: auto; display: none; }
-    #battle.visible { display: block; }
+    #side-tabs { width: 42; }
+    #side-tabs TabPane { padding: 0 1; }
     #choices { height: auto; padding: 0 1; }
-    #choices Button { margin: 0 1 0 0; min-width: 8; }
+    .choice-row { height: auto; }
+    .choice-row Button { margin: 0 1 0 0; }
+    .choice-main { width: 1fr; content-align: left middle; }
+    #player-input { margin: 0 1; }
     #cmdbar { height: auto; padding: 0 1; }
     #cmdbar Button { margin: 0 1 0 0; min-width: 6; }
-    #player-input { margin: 0 1; }
+    .gear-item, .skill-item { width: 100%; margin: 0 0 0 0; content-align: left middle; }
+    .skill-forget { min-width: 10; }
     #dialog {
         align: center middle; background: $surface; border: thick $primary;
         padding: 1 2; width: 80; height: auto; margin: 4 8;
@@ -180,9 +178,7 @@ class Fateweaver(App):
     #dialog-buttons Button { margin: 0 2; }
     #alloc-row { height: auto; align-horizontal: center; }
     #alloc-row Button { margin: 0 1; min-width: 10; }
-    #picker-list { max-height: 14; }
-    #picker-list Button { width: 100%; margin: 0 0 1 0; }
-    ConfirmScreen, AllocateScreen, PickerScreen { align: center middle; }
+    ConfirmScreen, AllocateScreen { align: center middle; }
     """
 
     def __init__(self, cid: int):
@@ -190,31 +186,39 @@ class Fateweaver(App):
         self.cid = cid
         self.gm = gm_mod.GameMaster(cid)
         self.busy = False
+        self._gen = 0          # generation counter for unique dynamic ids
+        self._had_foes = False
 
     # ---------------------------------------------------------- layout -------
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         with Horizontal(id="main"):
             yield RichLog(id="story", wrap=True, markup=False, auto_scroll=True)
-            with VerticalScroll(id="side"):
-                yield Static(id="sheet")
-                yield Static(id="battle")
-        with Horizontal(id="choices"):
+            with TabbedContent(initial="tab-hero", id="side-tabs"):
+                with TabPane("Hero", id="tab-hero"):
+                    with VerticalScroll():
+                        yield Static(id="sheet")
+                with TabPane("Gear", id="tab-gear"):
+                    yield VerticalScroll(id="gear-list")
+                with TabPane("Skills", id="tab-skills"):
+                    yield VerticalScroll(id="skill-list")
+                with TabPane("Foes", id="tab-foes"):
+                    with VerticalScroll():
+                        yield Static(id="battle")
+        with Vertical(id="choices"):
             pass
         yield Input(placeholder="Say or do anything… (or click a choice above)",
                     id="player-input")
         with Horizontal(id="cmdbar"):
-            yield Button("Gear", id="cmd-gear")
-            yield Button("Skills", id="cmd-skills")
-            yield Button("Inspect", id="cmd-inspect")
-            yield Button("Train", id="cmd-train")
+            yield Button("Train ◆", id="cmd-train")
+            yield Button("Roll d20", id="cmd-roll")
             yield Button("Lang 中/EN", id="cmd-lang")
             yield Button("Quit", id="cmd-quit", variant="error")
         yield Footer()
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         gm_mod.CONFIRM = self._confirm_from_engine
-        self.refresh_side()
+        await self.refresh_side()
         char = db.get_character(self.cid)
         scen = scen_mod.SCENARIOS.get(char.get("scenario") or "tavern",
                                       scen_mod.SCENARIOS["tavern"])
@@ -253,7 +257,7 @@ class Fateweaver(App):
     def run_turn(self, text: str = "", choice: int | None = None,
                  power: bool = False, skill: int | None = None) -> None:
         self.busy = True
-        self.call_from_thread(self.set_choices, [])  # clear while thinking
+        self.call_from_thread(self.clear_choices)
         self.call_from_thread(self.log_line,
                               f"{ui.SHADOW}— the GM is narrating… —{ui.RESET}")
         writer = _LogWriter(self)
@@ -274,23 +278,30 @@ class Fateweaver(App):
             self.busy = False
         self.call_from_thread(self.after_turn)
 
+    def clear_choices(self) -> None:
+        self.query_one("#choices", Vertical).remove_children()
+
     async def after_turn(self) -> None:
-        self.refresh_side()
+        await self.refresh_side()
         await self.set_choices(self.gm.choices)
         if db.get_character(self.cid).get("attr_points", 0) > 0:
             self.push_screen(AllocateScreen(self.cid),
-                             lambda _res: self.refresh_side())
+                             lambda _res: self.call_later(self.refresh_side))
 
-    # ----------------------------------------------------------- panels ------
-    def refresh_side(self) -> None:
+    # ----------------------------------------------------------- sidebar -----
+    async def refresh_side(self) -> None:
+        self._gen += 1
+        gen = self._gen
         char = db.get_character(self.cid)
+
+        # --- Hero tab ---
         lines = [""]
         lines.append(f" {ui.NAME}{char['name']}{ui.RESET}  "
                      f"{ui.SHADOW}lvl {char['level']} {char['class']}{ui.RESET}")
-        lines.append(f" HP {ui.hp_bar(char['hp'], char['max_hp'], 16)}")
+        lines.append(f" HP {ui.hp_bar(char['hp'], char['max_hp'], 18)}")
         nxt = db.xp_for_next(char["level"])
         lines.append(f" {ui.GOLD}⛁ {char['gold']}{ui.RESET}  "
-                     f"{ui.ARCANE}✦ {char['xp']}/{nxt}{ui.RESET}  "
+                     f"{ui.ARCANE}✦ {char['xp']}/{nxt} xp{ui.RESET}  "
                      f"{ui.GOLD}⚡{char.get('power_rolls', 0)}{ui.RESET} "
                      f"{ui.ARCANE}↻{char.get('rerolls', 0)}{ui.RESET}")
         bon = db.equipment_bonuses(self.cid)
@@ -301,86 +312,155 @@ class Fateweaver(App):
             stats.append(f"{a.upper()} {eff}({mod:+d})")
         lines.append(" " + "  ".join(stats[:3]))
         lines.append(" " + "  ".join(stats[3:]))
-        gear = [e for e in db.list_equipment(self.cid) if e["equipped"]]
-        if gear:
-            lines.append(f" {ui.SHADOW}Gear{ui.RESET}")
-            for e in gear:
-                b = " ".join(f"{k.upper()}{v:+d}" for k, v in e["bonuses"].items())
-                lines.append(f"  {ui.rarity(e['name'], e['rarity'])} "
-                             f"{ui.SHADOW}{b}{ui.RESET}")
-        skills = db.list_skills(self.cid)
-        if skills:
-            lines.append(f" {ui.SHADOW}Skills{ui.RESET}")
-            for i, sk in enumerate(skills, 1):
-                tags = "+".join(a.upper() for a in sk["attrs"])
-                lines.append(f"  {i}. {ui.AMBER}{sk['name']}{ui.RESET} "
-                             f"{ui.SHADOW}{sk['dice']}+{tags}{ui.RESET}")
         pts = char.get("attr_points", 0)
         if pts:
             lines.append(f" {ui.GOLD}◆ {pts} points to train{ui.RESET}")
+        inv = db.get_inventory(self.cid)
+        if inv:
+            lines.append(f" {ui.SHADOW}Pack:{ui.RESET} " +
+                         ", ".join(f"{i['item']} x{i['qty']}" for i in inv))
         self.query_one("#sheet", Static).update(ansi("\n".join(lines)))
 
-        # battle panel
+        # --- Gear tab: click an item to equip it ---
+        gear_list = self.query_one("#gear-list", VerticalScroll)
+        await gear_list.remove_children()
+        gear = db.list_equipment(self.cid)
+        if not gear:
+            await gear_list.mount(Static(ansi(
+                f"{ui.SHADOW}(no equipment yet — the story provides){ui.RESET}")))
+        for e in gear:
+            label = Text()
+            label.append("● " if e["equipped"] else "○ ",
+                         style="green" if e["equipped"] else "dim")
+            label.append(ansi(ui.rarity(e["name"], e["rarity"])))
+            label.append(f"  [{e['rarity']} {e['slot']}] ", style="dim")
+            bons = " ".join(f"{k.upper()}{v:+d}" for k, v in e["bonuses"].items())
+            if bons:
+                label.append(f" {bons} ", style=_POS)
+            for ab in e["abilities"]:
+                label.append(f"\n   ✧ {ab}", style="#ffd75f")
+            await gear_list.mount(Button(label, id=f"gearbtn-{gen}-{e['id']}",
+                                         classes="gear-item"))
+
+        # --- Skills tab: use / forget ---
+        skill_list = self.query_one("#skill-list", VerticalScroll)
+        await skill_list.remove_children()
+        skills = db.list_skills(self.cid)
+        await skill_list.mount(Static(ansi(
+            f"{ui.SHADOW}Slots {len(skills)}/{db.max_skill_slots(char['level'])} — "
+            f"click to use in the story{ui.RESET}")))
+        for i, sk in enumerate(skills):
+            tags = "+".join(a.upper() for a in sk["attrs"])
+            label = Text()
+            label.append(f"✦ {sk['name']} ", style="bold #ffaf5f")
+            label.append(f" {sk['dice']}+{tags} ", style=_NEU)
+            if sk["descr"]:
+                label.append(f"\n   {sk['descr']}", style="dim")
+            row = Horizontal(classes="choice-row")
+            await skill_list.mount(row)
+            await row.mount(Button(label, id=f"useskill-{gen}-{i}",
+                                   classes="gear-item choice-main"))
+            await row.mount(Button("forget", id=f"forgetskill-{gen}-{sk['id']}",
+                                   classes="skill-forget", variant="error"))
+
+        # --- Foes tab: art + tiered stats, autofocus on new combat ---
         battle = self.query_one("#battle", Static)
         foes = db.list_enemies(self.cid)
-        if not foes:
-            battle.remove_class("visible")
-            battle.update("")
-        else:
-            battle.add_class("visible")
+        tabs = self.query_one(TabbedContent)
+        pane = self.query_one("#tab-foes", TabPane)
+        if foes:
             parts = []
             for e in foes:
                 parts.append(art.art_for(e["name"]))
                 parts.append("")
-                for line in self.gm.enemy_view(e):
-                    parts.append(line.strip("\n"))
+                parts.extend(line.strip("\n") for line in self.gm.enemy_view(e))
                 parts.append("")
             battle.update(ansi("\n".join(parts)))
+            try:
+                tabs.get_tab("tab-foes").label = f"⚔ Foes ({len(foes)})"
+            except Exception:
+                pass
+            if not self._had_foes:
+                tabs.active = "tab-foes"
+            self._had_foes = True
+        else:
+            battle.update(ansi(f"{ui.SHADOW}(no active enemies — for now){ui.RESET}"))
+            try:
+                tabs.get_tab("tab-foes").label = "Foes"
+            except Exception:
+                pass
+            self._had_foes = False
 
+    # ------------------------------------------------------- choice buttons --
     async def set_choices(self, choices: list) -> None:
-        bar = self.query_one("#choices", Horizontal)
-        await bar.remove_children()
+        box = self.query_one("#choices", Vertical)
+        await box.remove_children()
         char = db.get_character(self.cid)
+        self._gen += 1
+        gen = self._gen
         for i, (text, trait, prof, dc, _assumed) in enumerate(choices):
+            label = Text()
+            label.append(f" {i + 1} ", style=_NUM)
+            label.append(f" {text}  ")
             if trait == "none":
-                label = f"{i + 1}. {text[:38]} ·no roll·"
+                label.append(" · no roll · ", style=_NOROLL)
             else:
                 mod = self.gm._check_mod(char, trait, prof)
                 need = max(2, min(20, (dc or 13) - mod))
-                label = (f"{i + 1}. {text[:34]} ⚅{trait.upper()}{mod:+d}"
-                         f"{'★' if prof else ''} {need}+")
-            bar.mount(Button(label, id=f"choice-{i}", variant="primary"))
+                chip = _POS if mod > 0 else _NEG if mod < 0 else _NEU
+                label.append(f" ⚅ {trait.upper()} {mod:+d}{'★' if prof else ''} ",
+                             style=chip)
+                label.append("  ")
+                label.append(f"need {need}+", style=_NEED)
+            row = Horizontal(classes="choice-row")
+            await box.mount(row)
+            await row.mount(Button(label, id=f"choice-{gen}-{i}",
+                                   classes="choice-main", variant="primary"))
             if trait != "none" and char.get("power_rolls", 0) > 0:
-                bar.mount(Button(f"⚡p{i + 1}", id=f"powerchoice-{i}",
-                                 variant="warning"))
-        skills = db.list_skills(self.cid)
-        for i, sk in enumerate(skills[:5]):
-            bar.mount(Button(f"✦ {sk['name'][:14]}", id=f"skill-{i}"))
+                await row.mount(Button(f"⚡+10", id=f"powerchoice-{gen}-{i}",
+                                       variant="warning"))
 
     # ------------------------------------------------------------ actions ----
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id or ""
-        if self.busy and (bid.startswith(("choice-", "powerchoice-", "skill-"))):
+        part = bid.split("-")
+        if bid.startswith(("choice-", "powerchoice-", "useskill-")) and self.busy:
             return
         if bid.startswith("choice-"):
-            self.run_turn(choice=int(bid.split("-")[1]))
+            self.run_turn(choice=int(part[2]))
         elif bid.startswith("powerchoice-"):
-            self.run_turn(choice=int(bid.split("-")[1]), power=True)
-        elif bid.startswith("skill-"):
-            self.run_turn(skill=int(bid.split("-")[1]))
-        elif bid == "cmd-gear":
-            self.show_gear()
-        elif bid == "cmd-skills":
-            self.show_skills()
-        elif bid == "cmd-inspect":
-            self.show_inspect()
+            self.run_turn(choice=int(part[2]), power=True)
+        elif bid.startswith("useskill-"):
+            self.run_turn(skill=int(part[2]))
+        elif bid.startswith("gearbtn-"):
+            item = db.equip_item(self.cid, int(part[2]))
+            if item:
+                self.log_line(f"Equipped {ui.rarity(item['name'], item['rarity'])}.")
+                self.call_later(self.refresh_side)
+        elif bid.startswith("forgetskill-"):
+            skill_id = int(part[2])
+            sk = db.get_skill(skill_id)
+
+            def finish(answer: bool | None) -> None:
+                if answer and sk:
+                    db.remove_skill(self.cid, skill_id)
+                    self.log_line(f"{ui.SHADOW}Forgot {sk['name']} — a slot is "
+                                  f"free.{ui.RESET}")
+                    self.call_later(self.refresh_side)
+
+            self.push_screen(
+                ConfirmScreen(f"Forget {sk['name'] if sk else 'this skill'}?",
+                              "Forget", "Keep"), finish)
         elif bid == "cmd-train":
             if db.get_character(self.cid).get("attr_points", 0) > 0:
                 self.push_screen(AllocateScreen(self.cid),
-                                 lambda _res: self.refresh_side())
+                                 lambda _res: self.call_later(self.refresh_side))
             else:
                 self.log_line(f"{ui.SHADOW}No unspent attribute points — level "
                               f"up to earn more.{ui.RESET}")
+        elif bid == "cmd-roll":
+            r = dice.roll("d20")
+            self.log_line(f"  ⚅ {r.detail()}")
         elif bid == "cmd-lang":
             char = db.get_character(self.cid)
             new_lang = "en" if char.get("lang") == "canto" else "canto"
@@ -399,7 +479,6 @@ class Fateweaver(App):
         if not text or self.busy:
             return
         low = text.lower()
-        # numbered picks and p#/s# shortcuts still work from the keyboard
         if low.isdigit() and self.gm.choices and 1 <= int(low) <= len(self.gm.choices):
             self.run_turn(choice=int(low) - 1)
         elif (len(low) == 2 and low[0] == "p" and low[1].isdigit()
@@ -416,61 +495,6 @@ class Fateweaver(App):
                 self.log_line(f"{ui.BLOOD}{e}{ui.RESET}")
         else:
             self.run_turn(text)
-
-    # ------------------------------------------------------------- modals ----
-    def show_gear(self) -> None:
-        gear = db.list_equipment(self.cid)
-        if not gear:
-            self.log_line(f"{ui.SHADOW}(no equipment yet — the story will "
-                          f"provide){ui.RESET}")
-            return
-        opts = []
-        for e in gear:
-            b = " ".join(f"{k.upper()}{v:+d}" for k, v in e["bonuses"].items())
-            mark = "●" if e["equipped"] else "○"
-            abil = f" — {'; '.join(e['abilities'])}" if e["abilities"] else ""
-            opts.append(f"{mark} {e['name']} [{e['rarity']} {e['slot']}] {b}{abil}")
-
-        def picked(idx: int | None) -> None:
-            if idx is not None:
-                item = db.equip_item(self.cid, gear[idx]["id"])
-                self.log_line(f"Equipped {ui.rarity(item['name'], item['rarity'])}.")
-                self.refresh_side()
-
-        self.push_screen(PickerScreen("🎒 Click to equip (one per slot)", opts),
-                         picked)
-
-    def show_skills(self) -> None:
-        skills = db.list_skills(self.cid)
-        char = db.get_character(self.cid)
-        if not skills:
-            self.log_line(f"{ui.SHADOW}(no skills yet — trainers and milestones "
-                          f"teach them){ui.RESET}")
-            return
-        opts = []
-        for sk in skills:
-            tags = "+".join(a.upper() for a in sk["attrs"])
-            opts.append(f"✦ {sk['name']} ({sk['dice']}+{tags}) — {sk['descr']}")
-
-        def picked(idx: int | None) -> None:
-            if idx is not None:
-                self.run_turn(skill=idx)
-
-        self.push_screen(
-            PickerScreen(f"✦ Skills {len(skills)}/{db.max_skill_slots(char['level'])} "
-                         f"— click to use", opts), picked)
-
-    def show_inspect(self) -> None:
-        foes = db.list_enemies(self.cid)
-        if not foes:
-            self.log_line(f"{ui.SHADOW}(no active enemies){ui.RESET}")
-            return
-        for e in foes:
-            self.log_line("")
-            for line in art.art_for(e["name"]).split("\n"):
-                self.log_line(line)
-            for line in self.gm.enemy_view(e):
-                self.log_line(line)
 
     def action_quit_game(self) -> None:
         def finish(answer: bool | None) -> None:
