@@ -18,8 +18,16 @@ Requirements: Python 3.10+, and [Claude Code](https://claude.com/claude-code)
 installed and logged in (`claude` on your PATH).
 
 ```bash
-./start.sh        # or: python3 game.py
+./start.sh                # the clickable TUI (auto-installs textual into .venv)
+./start.sh --classic      # zero-dependency classic prompt mode
 ```
+
+The TUI gives you a story pane, a live character panel (HP bar, stats, gear,
+skills, tokens), **clickable choice buttons** (with ⚡ power variants), one-click
+skills, dialogs for rerolls and level-up training — and a **battle panel with
+ANSI art** for every enemy: preset creatures (rats, goblins, dragons, witches,
+ghosts…) matched by name, and one-of-a-kind generated art for anything new,
+stored so the same foe always wears the same face.
 
 ## How a turn plays
 
@@ -107,6 +115,8 @@ dialogue. Your hero's name glows gold in the narration.
 | `scenarios.py` | Story presets — add your own here |
 | `dice.py` | Dice engine + CLI (`2d6+3`, advantage, crits) |
 | `db.py` | SQLite: characters, stats, inventory, log, saves |
+| `tui.py` | Clickable Textual UI — panels, buttons, battle art |
+| `art.py` | Enemy ANSI art: presets + generated-and-stored |
 | `ui.py` | Terminal rendering: markdown→ANSI, colors, spinner, HP bar |
 
 ## Customize
