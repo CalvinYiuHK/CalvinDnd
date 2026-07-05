@@ -18,9 +18,22 @@ Requirements: Python 3.10+, and [Claude Code](https://claude.com/claude-code)
 installed and logged in (`claude` on your PATH).
 
 ```bash
+./start-web.sh            # the web app → http://127.0.0.1:8000 (needs Node.js once, to build)
 ./start.sh                # the clickable TUI (auto-installs textual into .venv)
 ./start.sh --classic      # zero-dependency classic prompt mode
 ```
+
+**The web app** is the nicest way to play: a React interface (“the loom of
+fate” — ink-dark, candlelit gold) with the story as an illuminated column,
+every dice roll appearing as an animated d20 knot on a golden thread, three
+clickable choice cards with highlighted stat badges and `need N+` targets
+(each with a ⚡+10 power variant), and a sidebar with Hero / Gear / Skills /
+Foes tabs — enemy ANSI art, tiered stat visibility, and live HP bars included.
+Reroll offers and level-up point allocation are dialogs; hero creation is a
+full wizard (story pick, race/background, stat rolling with rerolls,
+English/廣東話). First run installs `fastapi`+`uvicorn` into `.venv` and
+builds the frontend with npm; after that it starts instantly
+(`REBUILD=1 ./start-web.sh` to rebuild).
 
 The TUI gives you a story pane and a **tabbed sidebar — Hero / Gear / Skills /
 Foes** — always in view: click gear to equip it, click a skill to use it (or
@@ -117,6 +130,9 @@ dialogue. Your hero's name glows gold in the narration.
 
 | File | Role |
 |------|------|
+| `start-web.sh` | Web app entry point — FastAPI + built React UI |
+| `server.py` | Web backend: REST + WebSocket around the same engine |
+| `web/` | React frontend (Vite) — the loom-of-fate interface |
 | `start.sh` | Entry point (pure stdlib — nothing to install) |
 | `game.py` | Terminal loop — creation, menus, commands |
 | `gm.py` | The GM: persistent `claude -p` session + directive protocol |
