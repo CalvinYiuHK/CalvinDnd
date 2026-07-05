@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import Markdown from "react-markdown";
 import { motion } from "framer-motion";
+import { FoeIcon } from "./icons.jsx";
 
 // "label: d20+5: [14] +5 = 19" → { label, math, nat, total }
 function parseRoll(content) {
@@ -34,9 +35,10 @@ function Event({ ev, heroName }) {
     );
   }
   if (kind === "player") {
-    const quiet = content.startsWith("[");
-    if (quiet) return null;
-    return <div className="ev ev-player">{content}</div>;
+    if (content.startsWith("[")) return null;
+    // Engine-built prompts carry the mechanics; show only the chosen action.
+    const chose = content.match(/^I (?:choose|use my skill):?\s*"([^"]+)"/);
+    return <div className="ev ev-player">{chose ? chose[1] : content}</div>;
   }
   if (kind === "roll") {
     const r = parseRoll(content);
@@ -88,9 +90,13 @@ function Event({ ev, heroName }) {
     );
   }
   if (kind === "enemy") {
+    const foe = (content.match(/^(.+?) appears/) || [])[1];
     return (
       <div className="ev ev-enemy hot"><span className="knot" />
-        <div className="card">{content}</div>
+        <div className="card">
+          {foe && <FoeIcon name={foe} size={22} className="ev-foe-icon" />}
+          {content}
+        </div>
       </div>
     );
   }

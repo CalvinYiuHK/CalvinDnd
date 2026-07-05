@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AnsiUp } from "ansi_up";
+import { Avatar, FoeIcon } from "./icons.jsx";
 
 const ABILITIES = ["str", "dex", "con", "int", "wis", "cha"];
 const ansi = new AnsiUp();
@@ -17,9 +18,14 @@ function HeroTab({ state, onLang }) {
   const s = state;
   return (
     <>
-      <div className="sb-name">{s.name}</div>
-      <div className="sb-sub">
-        level {s.level} {s.race !== "—" ? `${s.race} ` : ""}{s.class}
+      <div className="sb-head">
+        <Avatar name={s.name} size={56} />
+        <div>
+          <div className="sb-name">{s.name}</div>
+          <div className="sb-sub">
+            level {s.level} {s.race !== "—" ? `${s.race} ` : ""}{s.class}
+          </div>
+        </div>
       </div>
       <div className="barlabel"><span>HP</span><b>{s.hp}/{s.max_hp}</b></div>
       <HpBar hp={s.hp} max={s.max_hp} />
@@ -111,8 +117,11 @@ function FoesTab({ state }) {
     <>
       {foes.map((f) => (
         <div className={`foe ${f.defeated ? "dead" : ""}`} key={f.id}>
-          <span className="f-name">{f.name}</span>
-          <span className="f-lvl">{f.level != null ? `lvl ${f.level}` : "lvl ???"}{f.defeated ? " · ✝ defeated" : ""}</span>
+          <span className="f-head">
+            <FoeIcon name={f.name} size={22} className="f-icon" />
+            <span className="f-name">{f.name}</span>
+            <span className="f-lvl">{f.level != null ? `lvl ${f.level}` : "lvl ???"}{f.defeated ? " · ✝ defeated" : ""}</span>
+          </span>
           {f.art && (
             <div className="f-art" dangerouslySetInnerHTML={{ __html: ansi.ansi_to_html(f.art) }} />
           )}
