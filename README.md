@@ -28,7 +28,12 @@ forget it), and the **Foes tab** shows every enemy's ANSI art, stats, and live
 HP, grabbing focus the moment a fight starts. Choices are big clickable rows
 with **highlighted stat badges** (trait chip, your modifier, and the `need N+`
 target), each with a ⚡+10 power variant. Reroll offers and level-up training
-are dialogs. Enemy art: preset creatures (rats, goblins, dragons, witches,
+are dialogs. **Three layouts** ship built-in — press F1/F2/F3 to switch live
+(your pick is remembered): **Codex** (a centered book column, borderless, quiet
+amber accents), **Deck** (the command table — framed story, card sidebar, and a
+"fate line" pinning your latest roll above the input), **Stage** (cinematic —
+one status ribbon, full-width story, sidebar appears only in combat, choices as
+three cards). Enemy art: preset creatures (rats, goblins, dragons, witches,
 ghosts…) matched by name — Chinese names too — and one-of-a-kind generated art
 for anything new, stored so the same foe always wears the same face.
 
