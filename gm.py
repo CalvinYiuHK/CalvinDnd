@@ -177,6 +177,29 @@ real database, then sends you the results. The directives:
     bigger milestones). Offer a new skill every level or two — if the hero's
     slots are full the engine tells you, and the player may forget one first.
 
+[[enemy: NAME | level 3 | str 14 dex 12 con 13 int 8 wis 10 cha 6 | armor 1 | gear: Rusty Cleaver (uncommon weapon); Hide Vest (normal armor) | skills: Frenzy (2d6+STR): wild flurry; Howl (1d4+CHA): frightens]]
+    REQUIRED the moment any fight or hostile standoff begins: give EVERY
+    combatant a full stat block — level, all six attributes, optional armor
+    value, gear, and 1-3 skills. Scale the level to the story (a bar thug ~
+    hero level; a boss +1..2). The engine computes their HP
+    (10 + 6x(level-1) + 2xCON_mod) and shows the player only what they are
+    entitled to see: full stats if their level >= the enemy's or they have an
+    inspect-type skill; progressively less the further they are below.
+    You always know the full block. [[enemy: end]] when foes flee/are spared.
+
+[[damage: enemy | 1d8 | str | Sword slash]]
+[[damage: enemy | 2d6 | dex | Shadow Strike | crit]]
+[[damage: hero | 1d6 | str | Cleaver chop | by Gnash]]
+    Whenever a hit LANDS (after the check that decided it), emit this instead
+    of inventing numbers. The engine rolls the dice and applies the damage
+    formula both ways:
+        damage = dice + attacker's attr mod + attacker_level//2 - defender armor (min 1)
+    "crit" doubles the dice (use on natural 20). "by NAME" says which enemy
+    strikes the hero. The engine prints the numbers and the target's HP bar,
+    tells you the result (including defeat at 0 HP), and you narrate it.
+    Choose dice by weapon/skill weight: light 1d4-1d6, solid 1d8-2d6,
+    heavy/skill 2d6-3d8. Never state damage or HP totals yourself.
+
 Hard rules for directives:
 1. When an outcome is uncertain, you MUST emit a [[roll:...]] directive and \
 STOP your reply right there — do not narrate the outcome yet. The results \
@@ -258,7 +281,7 @@ in Chinese.
 }
 
 # [[kind: body]] — tolerant of whitespace and newlines inside the body.
-_DIRECTIVE_RE = re.compile(r"\[\[\s*(roll|sheet|item|reward|equip|skill)\s*:\s*(.*?)\s*\]\]", re.IGNORECASE | re.DOTALL)
+_DIRECTIVE_RE = re.compile(r"\[\[\s*(roll|sheet|item|reward|equip|skill|enemy|damage)\s*:\s*(.*?)\s*\]\]", re.IGNORECASE | re.DOTALL)
 _CHOICE_RE = re.compile(r"\[\[\s*choice\s*:\s*(.*?)\s*\]\]", re.IGNORECASE | re.DOTALL)
 
 ABILITY_TAGS = ("str", "dex", "con", "int", "wis", "cha")
@@ -711,6 +734,178 @@ class GameMaster:
             f"with this power level and narrate."
         )
 
+    # ------------------------------------------------------------- combat -----
+    def _has_inspect(self) -> bool:
+        """Passive inspect: any skill or equipped-gear ability that smells like
+        appraisal reveals full enemy stats regardless of level."""
+        words = ("inspect", "insight", "appraise", "analyz", "scan", "鑑定", "洞察")
+        for sk in db.list_skills(self.character_id):
+            text = (sk["name"] + " " + sk["descr"]).lower()
+            if any(w in text for w in words):
+                return True
+        for e in db.list_equipment(self.character_id):
+            if e["equipped"]:
+                text = " ".join(e["abilities"]).lower()
+                if any(w in text for w in words):
+                    return True
+        return False
+
+    def enemy_view(self, enemy: dict) -> list[str]:
+        """What the PLAYER may see of an enemy, by level difference:
+        diff >= 0 or inspect → everything; -1 → most; -2 → vague; <=-3 → silhouette."""
+        char = db.get_character(self.character_id)
+        diff = char["level"] - enemy["level"]
+        full = diff >= 0 or self._has_inspect()
+        frac = enemy["hp"] / max(1, enemy["max_hp"])
+        color = ui.MOSS if frac > 0.5 else ui.GOLD if frac > 0.25 else ui.BLOOD
+        bar_w = 14
+        filled = round(bar_w * frac)
+        bar = f"{color}{'█' * filled}{ui.SHADOW}{'░' * (bar_w - filled)}{RESET}"
+        hp_num = (f" {color}{enemy['hp']}{RESET}{ui.SHADOW}/{enemy['max_hp']}{RESET}"
+                  if full or diff == -1 else f" {ui.SHADOW}{int(frac * 100)}%{RESET}")
+        dead = f" {ui.BLOOD}✝ DEFEATED{RESET}" if enemy["hp"] == 0 else ""
+
+        lines = []
+        if full:
+            attrs = " ".join(f"{a.upper()} {enemy['attrs'][a]}" for a in
+                             ("str", "dex", "con", "int", "wis", "cha"))
+            lines.append(f"  {ui.BLOOD}⚔ {ui.BOLD}{enemy['name']}{RESET} "
+                         f"{ui.SHADOW}· lvl {enemy['level']} · armor {enemy['armor']}{RESET}"
+                         f"  {bar}{hp_num}{dead}")
+            lines.append(f"    {attrs}")
+            if enemy["gear"]:
+                lines.append(f"    {ui.SHADOW}Gear:{RESET} " + "; ".join(enemy["gear"]))
+            if enemy["skills"]:
+                lines.append(f"    {ui.SHADOW}Skills:{RESET} " + "; ".join(enemy["skills"]))
+        elif diff == -1:
+            top = sorted(enemy["attrs"], key=lambda a: -enemy["attrs"][a])[:2]
+            attrs = " ".join(f"{a.upper()} {enemy['attrs'][a]}" for a in top)
+            lines.append(f"  {ui.BLOOD}⚔ {ui.BOLD}{enemy['name']}{RESET} "
+                         f"{ui.SHADOW}· lvl {enemy['level']}{RESET}  {bar}{hp_num}{dead}")
+            lines.append(f"    {attrs} {ui.SHADOW}— the rest is unclear{RESET}")
+            if enemy["gear"]:
+                names = [g.split("(")[0].strip() for g in enemy["gear"]]
+                lines.append(f"    {ui.SHADOW}Carries: {', '.join(names)}{RESET}")
+        elif diff == -2:
+            top = max(enemy["attrs"], key=lambda a: enemy["attrs"][a])
+            lines.append(f"  {ui.BLOOD}⚔ {ui.BOLD}{enemy['name']}{RESET} "
+                         f"{ui.SHADOW}· lvl {enemy['level']}{RESET}  {bar}{hp_num}{dead}")
+            lines.append(f"    {ui.SHADOW}You sense only overwhelming "
+                         f"{top.upper()} — study it or grow stronger{RESET}")
+        else:
+            lines.append(f"  {ui.BLOOD}⚔ {ui.BOLD}{enemy['name']}{RESET} "
+                         f"{ui.SHADOW}· lvl ??? — far beyond you{RESET}  {bar}{hp_num}{dead}")
+        return lines
+
+    def _exec_enemy(self, body: str) -> str:
+        if body.strip().lower().startswith("end"):
+            n = db.end_encounter(self.character_id)
+            self._show(f"⚔ The fight is over ({n} foe(s) stand down).")
+            return f"enemy: encounter ended, {n} foe(s) deactivated"
+        parts = [p.strip() for p in body.split("|")]
+        name = parts[0]
+        level, armor = 1, None
+        attrs = {}
+        gear, skl = [], []
+        for p in parts[1:]:
+            low = p.lower()
+            m = re.search(r"level\s*(\d+)", low)
+            if m:
+                level = int(m.group(1))
+            m = re.search(r"armor\s*(\d+)", low)
+            if m:
+                armor = int(m.group(1))
+            for am in re.finditer(r"(str|dex|con|int|wis|cha)\s*(\d+)", low):
+                attrs[am.group(1)] = int(am.group(2))
+            if low.startswith("gear:"):
+                gear = [g.strip() for g in p[5:].split(";") if g.strip()]
+            if low.startswith("skills:"):
+                skl = [g.strip() for g in p[7:].split(";") if g.strip()]
+        enemy = db.add_enemy(self.character_id, name, level, attrs, gear, skl, armor)
+        print()
+        for line in self.enemy_view(enemy):
+            print(line)
+        char = db.get_character(self.character_id)
+        seen = ("full stats" if char["level"] >= enemy["level"] or self._has_inspect()
+                else "a partial read")
+        db.log_event(self.character_id, "enemy",
+                     f"{name} appears (lvl {enemy['level']}, HP {enemy['max_hp']})")
+        return (f"enemy: \"{name}\" registered — level {enemy['level']}, "
+                f"HP {enemy['hp']}/{enemy['max_hp']}, armor {enemy['armor']}, "
+                f"attrs {enemy['attrs']}. The player sees {seen}.")
+
+    def _exec_damage(self, body: str) -> str:
+        parts = [p.strip() for p in body.split("|")]
+        if len(parts) < 2:
+            return "damage: need at least target and dice"
+        target = parts[0].lower()
+        notation = parts[1]
+        attr = (parts[2].lower() if len(parts) > 2 else "str").strip()
+        if attr not in ABILITY_TAGS:
+            attr = "str"
+        reason = parts[3] if len(parts) > 3 else "attack"
+        extras = " ".join(parts[4:]).lower()
+        crit = "crit" in extras
+        by = ""
+        m = re.search(r"by\s+(.+)", " ".join(parts[4:]), re.I)
+        if m:
+            by = m.group(1).strip()
+
+        char = db.get_character(self.character_id)
+        if crit:  # crit doubles the dice: roll the notation twice, sum dice only
+            r1, r2 = dice.roll(notation), dice.roll(notation)
+            dice_total = r1.total + r2.total
+            detail = f"{r1.detail().split(' = ')[0]} + {r2.detail().split(' = ')[0]} (CRIT x2)"
+        else:
+            r1 = dice.roll(notation)
+            dice_total = r1.total
+            detail = r1.detail().split(" = ")[0]
+
+        if target.startswith("enemy"):
+            enemy = db.find_enemy(self.character_id, by)
+            if enemy is None:
+                return "damage: no active enemy — declare one with [[enemy: ...]] first"
+            mod = ability_mod(self._eff_score(char, attr))
+            scale = char["level"] // 2
+            dmg = db.damage_total(dice_total, mod, char["level"], enemy["armor"])
+            enemy = db.damage_enemy(enemy["id"], dmg)
+            math = (f"{detail} {mod:+d} {attr.upper()} "
+                    f"{f'+{scale} lvl ' if scale else ''}-{enemy['armor']} armor")
+            print(f"\n  {ui.GOLD}⚔ {reason}:{RESET} {math} = "
+                  f"{ui.BOLD}{ui.GOLD}{dmg} damage{RESET}")
+            for line in self.enemy_view(enemy):
+                print(line)
+            db.log_event(self.character_id, "damage",
+                         f"dealt {dmg} to {enemy['name']} ({enemy['hp']}/{enemy['max_hp']})")
+            fate = (" THE ENEMY IS DEFEATED (0 HP) — narrate the finish"
+                    if enemy["hp"] == 0 else "")
+            return (f"damage: hero dealt {dmg} to {enemy['name']} "
+                    f"({dice_total} dice {mod:+d} {attr} +{scale} level "
+                    f"-{enemy['armor']} armor). {enemy['name']} now "
+                    f"{enemy['hp']}/{enemy['max_hp']} HP.{fate}")
+
+        # enemy hits the hero
+        enemy = db.find_enemy(self.character_id, by)
+        e_attrs = enemy["attrs"] if enemy else {}
+        e_level = enemy["level"] if enemy else char["level"]
+        e_name = enemy["name"] if enemy else (by or "The foe")
+        mod = ability_mod(e_attrs.get(attr, 10))
+        armor = db.hero_armor(self.character_id)
+        scale = e_level // 2
+        dmg = db.damage_total(dice_total, mod, e_level, armor)
+        c = db.adjust_character(self.character_id, hp=-dmg)
+        math = (f"{detail} {mod:+d} {attr.upper()} "
+                f"{f'+{scale} lvl ' if scale else ''}-{armor} armor")
+        print(f"\n  {ui.BLOOD}🩸 {e_name} — {reason}:{RESET} {math} = "
+              f"{ui.BOLD}{ui.BLOOD}{dmg} damage{RESET}   "
+              f"{ui.SHADOW}you:{RESET} {ui.hp_bar(c['hp'], c['max_hp'])}")
+        db.log_event(self.character_id, "damage",
+                     f"took {dmg} from {e_name} (HP {c['hp']}/{c['max_hp']})")
+        down = " THE HERO IS AT 0 HP — down/dying, handle it" if c["hp"] == 0 else ""
+        return (f"damage: {e_name} dealt {dmg} to the hero ({dice_total} dice "
+                f"{mod:+d} {attr} +{scale} level -{armor} armor). Hero now "
+                f"{c['hp']}/{c['max_hp']} HP.{down}")
+
     def _execute(self, kind: str, body: str) -> str:
         try:
             if kind == "roll":
@@ -725,6 +920,10 @@ class GameMaster:
                 return self._exec_equip(body)
             if kind == "skill":
                 return self._exec_skill(body)
+            if kind == "enemy":
+                return self._exec_enemy(body)
+            if kind == "damage":
+                return self._exec_damage(body)
         except Exception as e:
             return f"{kind}: ERROR — {e}"
         return f"{kind}: unknown directive"

@@ -234,6 +234,7 @@ HELP = f"""
   /stats       show your character sheet
   /inventory   show your inventory
   /log         show recent events (rolls, story beats)
+  /inspect     size up your enemies (what you see scales with your level)
   /gear        equipment (g2 = equip item 2) — rarity colors, abilities
   /skills      skill slots (s2 = use skill 2 in the story, f2 = forget)
   /train       spend unspent attribute points (+4 per level-up)
@@ -401,6 +402,14 @@ def game_loop(cid: int) -> None:
                 continue
             if cmd in ("/stats", "/sheet"):
                 show_sheet(db.get_character(cid))
+                continue
+            if cmd in ("/inspect", "/enemy", "/enemies", "/e"):
+                foes = db.list_enemies(cid)
+                if not foes:
+                    print(f"  {DIM}(no active enemies){RESET}")
+                for e in foes:
+                    for line in gm.enemy_view(e):
+                        print(line)
                 continue
             if cmd in ("/gear", "/equipment", "/g"):
                 show_gear(cid)
