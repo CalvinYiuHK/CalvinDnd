@@ -15,7 +15,7 @@ from gm import GameMaster
 REPLIES = [
     (
         "The cellar door bursts open. **Gnash** the goblin snarls at Rui.\n"
-        "[[enemy: Gnash | level 1 | str 12 dex 14 con 10 int 8 wis 8 cha 6 | "
+        "[[enemy: Gnash | level 1 | str 12 dex 14 con 10 int 8 wis 8 cha 6 | icon: goblin | "
         "gear: Rusty Cleaver (normal weapon) | skills: Frenzy (1d6+STR): flurry]]\n"
         "[[equip: Lucky Pin | rare | trinket | dex+2 | Glint: reroll one die a day]]\n"
         "[[choice: Charge Gnash head-on | STR | DC 12]]\n"
@@ -87,7 +87,12 @@ with client.websocket_connect(f"/ws/{cid}") as ws:
     assert choices[1]["prof"] is True and choices[1]["need"] >= 2
     assert choices[2]["trait"] is None
     assert len(enemies) == 1 and enemies[0]["tier"] == "full", enemies
-    assert enemies[0]["art"], "enemy art missing"
+    # "Gnash" matches no hand-drawn preset → art is None (icon fallback),
+    # while preset names still ship ANSI art.
+    assert enemies[0]["art"] is None, "expected icon fallback for Gnash"
+    assert enemies[0]["icon"] == "goblin", f"GM-picked icon lost: {enemies[0]}"
+    import art as art_mod
+    assert art_mod.has_preset("Goblin Chief") and art_mod.art_for("Goblin Chief")
 
     # gear granted by [[equip]] shows in state
     st = client.get(f"/api/heroes/{cid}/state").json()
@@ -126,5 +131,30 @@ assert st3["lang"] == "canto"
 
 assert client.delete(f"/api/heroes/{cid}").json()["ok"]
 assert client.get(f"/api/heroes/{cid}/state").status_code == 404
+
+# ---- icon vocabulary: every scenario menu word must exist in the web map,
+# every menu has exactly 50 entries, and the GM's system prompt carries it.
+import re
+
+import scenarios
+
+js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "web", "src", "foeIcons.js")).read()
+body = js.split("export const FOE_ICON_MAP = {", 1)[1]
+body = re.sub(r"//.*", "", body)
+js_words = {a or b for a, b in
+            re.findall(r'(?:"([\w-]+)"|(?<![\w-])([a-zA-Z][\w-]*))\s*:', body)}
+for scen, words in scenarios.FOE_ICONS.items():
+    assert len(words) == 50, f"{scen}: {len(words)} icon words, want 50"
+    assert len(set(words)) == 50, f"{scen}: duplicate icon words"
+    missing = [w for w in words if w not in js_words]
+    assert not missing, f"{scen}: not in foeIcons.js: {missing}"
+
+gm2 = GameMaster(client.post("/api/heroes", json={
+    "name": "Mo", "scenario": "work", "race": "—", "char_class": "New Hire",
+    "lang": "en", "premise": "", "scores": {a: 10 for a in stats["scores"]},
+}).json()["id"])
+sysprompt = gm2._system()
+assert "Enemy icon menu" in sysprompt and "coffee-fiend" in sysprompt
 
 print("ALL SERVER TESTS PASSED")

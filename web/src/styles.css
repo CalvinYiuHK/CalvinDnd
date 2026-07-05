@@ -645,3 +645,9 @@ html.theme-glass .actiondock {
   border-top: 1px solid rgba(160,190,255,.16);
 }
 html.theme-glass .foe .f-icon { color: var(--blood); filter: drop-shadow(0 0 6px rgba(239,112,136,.5)); }
+
+/* foes without preset ANSI art get a large icon portrait instead */
+.foe .f-portrait { color: var(--blood); opacity: .92; }
+.foe .f-portrait svg { filter: drop-shadow(0 0 14px color-mix(in srgb, var(--blood) 35%, transparent)); }
+html.theme-grimoire .foe .f-portrait { color: #c8965a; }
+html.theme-glass .foe .f-portrait svg { filter: drop-shadow(0 0 16px rgba(127,212,232,.4)); }

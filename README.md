@@ -39,8 +39,10 @@ Three switchable looks ship with it — **⟐ Loom** (ink-dark, a golden
 fate-thread through the story), **☙ Grimoire** (aged parchment, oxblood
 drop caps), **◈ Nightglass** (frosted glass over deep blue) — switch live
 from the top bar; your pick is remembered. Player avatars are generated
-per-hero (DiceBear), and foes get matching fantasy icons
-(game-icons.net) beside their ANSI art.
+per-hero (DiceBear), and every foe gets a portrait: the GM picks it from
+a 50-icon menu curated per story (goblins and liches in the tavern,
+bosses and deadlines at the office — game-icons.net), with hand-drawn
+ANSI art still shown for classic monsters.
 
 The TUI gives you a story pane and a **tabbed sidebar — Hero / Gear / Skills /
 Foes** — always in view: click gear to equip it, click a skill to use it (or

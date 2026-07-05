@@ -9,6 +9,7 @@ import {
 } from "react-icons/gi";
 import { createAvatar } from "@dicebear/core";
 import { adventurer } from "@dicebear/collection";
+import { FOE_ICON_MAP } from "./foeIcons.js";
 
 // Keyword → icon, mirroring art.py's preset matching (Chinese included).
 const FOE_ICONS = [
@@ -34,10 +35,15 @@ const FOE_ICONS = [
   [["ogre", "食人魔"], GiOgre],
 ];
 
-export function FoeIcon({ name, size = 20, className = "" }) {
-  const low = (name || "").toLowerCase();
-  const entry = FOE_ICONS.find(([words]) => words.some((w) => low.includes(w)));
-  const Icon = entry ? entry[1] : GiMonsterGrasp;
+export function FoeIcon({ name, icon, size = 20, className = "" }) {
+  // The GM picks `icon` from the scenario's menu; name keywords are the
+  // fallback for older saves or a forgotten directive field.
+  let Icon = icon ? FOE_ICON_MAP[icon.toLowerCase()] : null;
+  if (!Icon) {
+    const low = (name || "").toLowerCase();
+    const entry = FOE_ICONS.find(([words]) => words.some((w) => low.includes(w)));
+    Icon = entry ? entry[1] : GiMonsterGrasp;
+  }
   return <Icon size={size} className={className} aria-hidden="true" />;
 }
 

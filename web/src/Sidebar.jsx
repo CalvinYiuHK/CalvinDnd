@@ -118,12 +118,14 @@ function FoesTab({ state }) {
       {foes.map((f) => (
         <div className={`foe ${f.defeated ? "dead" : ""}`} key={f.id}>
           <span className="f-head">
-            <FoeIcon name={f.name} size={22} className="f-icon" />
+            <FoeIcon name={f.name} icon={f.icon} size={22} className="f-icon" />
             <span className="f-name">{f.name}</span>
             <span className="f-lvl">{f.level != null ? `lvl ${f.level}` : "lvl ???"}{f.defeated ? " · ✝ defeated" : ""}</span>
           </span>
-          {f.art && (
+          {f.art ? (
             <div className="f-art" dangerouslySetInnerHTML={{ __html: ansi.ansi_to_html(f.art) }} />
+          ) : (
+            <div className="f-art f-portrait"><FoeIcon name={f.name} icon={f.icon} size={84} /></div>
           )}
           <div className="f-hp">
             <span>HP</span>
