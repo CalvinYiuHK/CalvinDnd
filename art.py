@@ -174,6 +174,11 @@ def _archetype(name: str) -> str | None:
     return None
 
 
+def has_preset(name: str) -> bool:
+    """True when the name matches a hand-drawn preset (vs generated art)."""
+    return _archetype(name) is not None
+
+
 def _load_stored(name: str) -> str | None:
     try:
         with sqlite3.connect(db.DB_PATH) as c:

@@ -65,7 +65,7 @@ if os.environ.get("TAVERN_FAKE_GM"):
             "Below, between racks of dusty casks, **Gnash** the goblin crouches "
             "over a broken lockbox, ears twitching. He has not seen you yet — "
             "but the stair under your boot just creaked.\n"
-            "[[enemy: Gnash | level 1 | str 12 dex 14 con 10 int 8 wis 8 cha 6 | "
+            "[[enemy: Gnash | level 1 | str 12 dex 14 con 10 int 8 wis 8 cha 6 | icon: goblin | "
             "gear: Rusty Cleaver (normal weapon); Patchy Hood (normal armor) | "
             "skills: Frenzy (1d6+STR): a wild flurry of chops]]\n"
             "[[equip: Lucky Pin | rare | trinket | dex+2 | Glint: once a day, "
@@ -154,7 +154,10 @@ def enemy_public(char: dict, enemy: dict, inspect: bool) -> dict:
         "tier": tier,
         "hp_pct": round(100 * enemy["hp"] / max(1, enemy["max_hp"])),
         "defeated": enemy["hp"] == 0,
-        "art": art.art_for(enemy["name"]),
+        "icon": enemy.get("icon") or "",
+        # The hand-drawn ANSI presets read well in a browser; the procedural
+        # fallback doesn't — the frontend shows a large foe icon instead.
+        "art": art.art_for(enemy["name"]) if art.has_preset(enemy["name"]) else None,
     }
     if tier in ("full", "partial"):
         out["hp"] = enemy["hp"]

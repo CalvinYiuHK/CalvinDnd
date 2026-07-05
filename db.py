@@ -114,6 +114,7 @@ def init_db() -> None:
                 armor        INTEGER NOT NULL DEFAULT 0,
                 gear         TEXT NOT NULL DEFAULT '[]',
                 skills       TEXT NOT NULL DEFAULT '[]',
+                icon         TEXT NOT NULL DEFAULT '',
                 active       INTEGER NOT NULL DEFAULT 1,
                 FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE
             );
@@ -139,6 +140,9 @@ def init_db() -> None:
                           ("attr_points", "INTEGER NOT NULL DEFAULT 0")):
             if col not in cols:
                 c.execute(f"ALTER TABLE characters ADD COLUMN {col} {decl}")
+        ecols = {r["name"] for r in c.execute("PRAGMA table_info(enemies)")}
+        if ecols and "icon" not in ecols:
+            c.execute("ALTER TABLE enemies ADD COLUMN icon TEXT NOT NULL DEFAULT ''")
 
 
 # ---------------------------------------------------------------- characters --
@@ -531,7 +535,8 @@ def hero_armor(character_id: int) -> int:
 
 
 def add_enemy(character_id: int, name: str, level: int, attrs: dict,
-              gear: list[str], skills: list[str], armor: Optional[int] = None) -> dict:
+              gear: list[str], skills: list[str], armor: Optional[int] = None,
+              icon: str = "") -> dict:
     attrs = {a: int(attrs.get(a, 10)) for a in ABILITIES}
     con_mod = (attrs["con"] - 10) // 2
     hp = enemy_max_hp(level, con_mod)
@@ -540,9 +545,10 @@ def add_enemy(character_id: int, name: str, level: int, attrs: dict,
     with _conn() as c:
         cur = c.execute(
             "INSERT INTO enemies (character_id, name, level, attrs, hp, max_hp, "
-            "armor, gear, skills, active) VALUES (?,?,?,?,?,?,?,?,?,1)",
+            "armor, gear, skills, icon, active) VALUES (?,?,?,?,?,?,?,?,?,?,1)",
             (character_id, name.strip(), max(1, level), json.dumps(attrs),
-             hp, hp, max(0, armor), json.dumps(gear), json.dumps(skills)))
+             hp, hp, max(0, armor), json.dumps(gear), json.dumps(skills),
+             icon.strip().lower()))
         eid = cur.lastrowid
     return get_enemy(eid)
 

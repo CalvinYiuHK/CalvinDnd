@@ -181,7 +181,7 @@ real database, then sends you the results. The directives:
     bigger milestones). Offer a new skill every level or two — if the hero's
     slots are full the engine tells you, and the player may forget one first.
 
-[[enemy: NAME | level 3 | str 14 dex 12 con 13 int 8 wis 10 cha 6 | armor 1 | gear: Rusty Cleaver (uncommon weapon); Hide Vest (normal armor) | skills: Frenzy (2d6+STR): wild flurry; Howl (1d4+CHA): frightens]]
+[[enemy: NAME | level 3 | str 14 dex 12 con 13 int 8 wis 10 cha 6 | armor 1 | icon: goblin | gear: Rusty Cleaver (uncommon weapon); Hide Vest (normal armor) | skills: Frenzy (2d6+STR): wild flurry; Howl (1d4+CHA): frightens]]
     REQUIRED the moment any fight or hostile standoff begins: give EVERY
     combatant a full stat block — level, all six attributes, optional armor
     value, gear, and 1-3 skills. Scale the level to the story (a bar thug ~
@@ -189,6 +189,8 @@ real database, then sends you the results. The directives:
     (10 + 6x(level-1) + 2xCON_mod) and shows the player only what they are
     entitled to see: full stats if their level >= the enemy's or they have an
     inspect-type skill; progressively less the further they are below.
+    Include `icon: WORD` picking the enemy's portrait — the single
+    best-fitting word from the icon menu listed under tonight's premise.
     You always know the full block. [[enemy: end]] when foes flee/are spared.
 
 [[damage: enemy | 1d8 | str | Sword slash]]
@@ -349,7 +351,10 @@ class GameMaster:
         premise = (char.get("premise") or "").strip() or scen["premise"]
         if char.get("scenario") == "custom" and premise:
             premise = f"Tonight's story, in the player's own words: {premise}"
-        return f"{GM_HEADER}\n{premise}\n\n{SYSTEM_PROMPT}{LANG_ADDENDA.get(lang, '')}"
+        menu = ", ".join(scenarios.foe_icons(char.get("scenario") or "tavern"))
+        return (f"{GM_HEADER}\n{premise}\n\n"
+                f"Enemy icon menu (for `icon:` in [[enemy: ...]] directives): "
+                f"{menu}\n\n{SYSTEM_PROMPT}{LANG_ADDENDA.get(lang, '')}")
 
     # `game.py` uses truthiness of `gm.messages` to detect a resumable game.
     @property
@@ -815,6 +820,7 @@ class GameMaster:
         level, armor = 1, None
         attrs = {}
         gear, skl = [], []
+        icon = ""
         for p in parts[1:]:
             low = p.lower()
             m = re.search(r"level\s*(\d+)", low)
@@ -825,11 +831,14 @@ class GameMaster:
                 armor = int(m.group(1))
             for am in re.finditer(r"(str|dex|con|int|wis|cha)\s*(\d+)", low):
                 attrs[am.group(1)] = int(am.group(2))
+            m = re.match(r"icon\s*:\s*([\w-]+)", p, re.I)
+            if m:
+                icon = m.group(1).lower()
             if low.startswith("gear:"):
                 gear = [g.strip() for g in p[5:].split(";") if g.strip()]
             if low.startswith("skills:"):
                 skl = [g.strip() for g in p[7:].split(";") if g.strip()]
-        enemy = db.add_enemy(self.character_id, name, level, attrs, gear, skl, armor)
+        enemy = db.add_enemy(self.character_id, name, level, attrs, gear, skl, armor, icon=icon)
         print()
         for line in self.enemy_view(enemy):
             print(line)

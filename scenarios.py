@@ -123,4 +123,79 @@ SCENARIOS = {
     },
 }
 
+
+# 50 foe-portrait icon words per story — the GM picks one per enemy via
+# `icon: WORD` in the [[enemy: ...]] directive. Every word maps to a
+# game-icons.net icon in web/src/foeIcons.js (kept in sync by tests).
+FOE_ICONS = {
+    "tavern": [
+        "rat", "goblin", "orc", "skeleton", "zombie", "ghost", "wraith",
+        "wolf", "bear", "spider", "snake", "dragon", "wyvern", "troll",
+        "ogre", "minotaur", "vampire", "witch", "demon", "slime", "mimic",
+        "golem", "gargoyle", "harpy", "kraken", "shark", "crocodile",
+        "scorpion", "bat", "raven", "boar", "lion", "griffin", "cyclops",
+        "cultist", "bandit", "assassin", "stranger", "knight", "guard",
+        "executioner", "pirate", "barbarian", "archer", "wizard", "jester",
+        "lich", "mummy", "werewolf", "imp",
+    ],
+    "school": [
+        "teacher", "coach", "bully", "delinquent", "boxer", "jock",
+        "queen-bee", "gossip", "chess", "gamer", "hacker", "bookworm",
+        "senior", "prefect", "striker", "baller", "champion", "guitarist",
+        "drummer", "singer", "artist", "actor", "scientist", "chef",
+        "nurse", "janitor", "librarian", "photographer", "security",
+        "robot", "drone", "police", "detective", "cool-kid", "crush",
+        "heartbreak", "exam", "deadline", "ghost", "rat", "cat", "dog",
+        "guard-dog", "owl", "bee", "wasp", "ant", "spider-web", "storm",
+        "puppet",
+    ],
+    "work": [
+        "boss", "manager", "hr", "lawyer", "auditor", "money-man",
+        "contract", "judge", "meeting", "email", "caller", "phone-addict",
+        "bureaucrat", "admin", "coffee-fiend", "chair-warmer", "elevator",
+        "vending-machine", "gatekeeper", "locked-door", "handcuffs",
+        "intern", "archivist", "paperwork", "deadline", "burnout",
+        "ticking-bomb", "police", "security", "detective", "hacker",
+        "journalist", "tycoon", "charmer", "diva", "gossip", "robot",
+        "drone", "rat", "shark", "wolf", "wasp", "snake", "janitor",
+        "chef", "taskmaster", "double-life", "gambler", "storm", "elder",
+    ],
+    "travel": [
+        "customs", "pickpocket", "taxi", "scooter", "train", "railway",
+        "airplane", "ticket-tout", "lost-luggage", "backpacker",
+        "globetrotter", "wayfinder", "treasure-map", "camper", "campfire",
+        "mountaineer", "volcano", "desert", "islander", "wave", "surfer",
+        "heatwave", "blizzard", "storm", "noodle-vendor", "pizza-guy",
+        "street-cook", "monkey", "gorilla", "panda", "koala", "tiger",
+        "elephant", "camel", "bull", "goat", "ram", "horse", "donkey",
+        "pig", "chicken", "rooster", "sheep", "jellyfish", "crab",
+        "octopus", "turtle", "frog", "gecko", "seagull",
+    ],
+    "oldself": [
+        "memory", "mirror", "fortune", "gambler", "card-sharp", "balance",
+        "guru", "inner-self", "double-life", "patriarch", "family",
+        "old-film", "vlogger", "prophecy", "poet", "grave", "coffin",
+        "puppet", "secret-book", "spellbook", "rewind", "time-trap",
+        "pocket-watch", "ticking-bomb", "heartbreak", "crush", "exam",
+        "deadline", "teacher", "coach", "bully", "delinquent", "senior",
+        "prefect", "cool-kid", "gossip", "chess", "bookworm", "librarian",
+        "ghost", "stranger", "elder", "burnout", "storm", "rat", "cat",
+        "dog", "owl", "raven", "wraith",
+    ],
+    "custom": [
+        "monster", "stranger", "ghost", "wolf", "bear", "snake", "dragon",
+        "demon", "witch", "knight", "guard", "bandit", "assassin",
+        "pirate", "wizard", "robot", "drone", "police", "detective",
+        "security", "teacher", "boss", "chef", "nurse", "hacker",
+        "journalist", "tycoon", "gambler", "puppet", "mirror", "memory",
+        "fortune", "storm", "volcano", "wave", "tiger", "lion", "shark",
+        "eagle", "dog", "cat", "rat", "spider", "deadline", "heartbreak",
+        "duel", "taskmaster", "elder", "family", "zombie",
+    ],
+}
+
+
+def foe_icons(scenario: str) -> list[str]:
+    return FOE_ICONS.get(scenario, FOE_ICONS["custom"])
+
 ORDER = ["tavern", "school", "work", "travel", "oldself", "custom"]
