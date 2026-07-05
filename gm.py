@@ -39,6 +39,10 @@ EFFORT = os.environ.get("TAVERN_EFFORT", "")          # e.g. "low" for snappier 
 TURN_TIMEOUT = int(os.environ.get("TAVERN_TIMEOUT", "300"))  # seconds per CLI call
 MAX_TOOL_ROUNDS = 8  # safety valve on directive → result → narrate loops
 
+# Optional front-end hooks. A TUI can set CONFIRM to a callable(str) -> bool
+# to replace terminal input() prompts (e.g. the reroll offer).
+CONFIRM = None
+
 # ---------------------------------------------------------------- backends ----
 # The GM can run on different terminal AI CLIs. `claude` is the first-class
 # backend (persistent --resume session, cached prompt prefix). Any other CLI
@@ -624,17 +628,21 @@ class GameMaster:
             if left < 1:
                 break
             auto = os.environ.get("TAVERN_TEST_REROLL", "")
-            if not sys.stdin.isatty() and not auto:
+            if CONFIRM is not None:
+                ans = "y" if CONFIRM(f"↻ Spend a reroll? ({left} left — the new "
+                                     f"roll replaces this one)") else "n"
+            elif not sys.stdin.isatty() and not auto:
                 break
-            try:
-                ans = auto or input(
-                    f"  {ui.GOLD}↻ Spend a reroll?{ui.RESET} "
-                    f"{ui.DIM}({left} left — the new roll replaces this one) "
-                    f"[y/N]{ui.RESET} ").strip().lower()
-            except (EOFError, KeyboardInterrupt):
-                break
-            if auto:  # consume the test value so loops terminate
-                os.environ["TAVERN_TEST_REROLL"] = ""
+            else:
+                try:
+                    ans = auto or input(
+                        f"  {ui.GOLD}↻ Spend a reroll?{ui.RESET} "
+                        f"{ui.DIM}({left} left — the new roll replaces this one) "
+                        f"[y/N]{ui.RESET} ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    break
+                if auto:  # consume the test value so loops terminate
+                    os.environ["TAVERN_TEST_REROLL"] = ""
             if ans != "y":
                 break
             db.adjust_resources(self.character_id, rerolls=-1)
