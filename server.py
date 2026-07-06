@@ -453,7 +453,9 @@ async def _run_turn(sess: Session, fn) -> None:
         await pump_task
         await _push_events(sess, last_id)
     if error:
-        await sess.ws.send_json({"type": "error", "message": error})
+        # retryable: the player's action can simply be re-sent.
+        await sess.ws.send_json({"type": "error", "message": error,
+                                 "retryable": True})
     await sess.ws.send_json({"type": "choices", "choices": choices_payload(sess.gm)})
     await sess.ws.send_json({"type": "state", "state": state_payload(cid)})
     char = db.get_character(cid)
@@ -492,7 +494,14 @@ async def ws_game(ws: WebSocket, cid: int):
 
     sess = Session(ws, gmi, asyncio.get_running_loop())
     await ws.send_json({"type": "state", "state": state_payload(cid)})
-    await ws.send_json({"type": "hello", "resuming": bool(gmi.messages)})
+    # A saved choice menu means the hero can resume instantly — no GM call
+    # just to look at a saved game; the client skips its auto-`start`.
+    instant = bool(gmi.messages) and bool(gmi.choices)
+    await ws.send_json({"type": "hello", "resuming": bool(gmi.messages),
+                        "instant": instant})
+    if instant:
+        await ws.send_json({"type": "choices", "choices": choices_payload(gmi)})
+        await ws.send_json({"type": "idle"})
 
     turn_task: asyncio.Task | None = None
     try:

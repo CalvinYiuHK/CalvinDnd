@@ -247,8 +247,22 @@ input, textarea { font: inherit; color: inherit; }
   background: var(--thread);
   clip-path: polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
 }
-.ev-roll .d20.nat20 { background: var(--moss); box-shadow: 0 0 18px color-mix(in srgb, var(--moss) 60%, transparent); }
-.ev-roll .d20.nat1 { background: var(--blood); }
+.ev-roll .d20.nat20 {
+  background: var(--moss); box-shadow: 0 0 18px color-mix(in srgb, var(--moss) 60%, transparent);
+  animation: goldflash .9s ease-out;
+}
+.ev-roll .d20.nat1 { background: var(--blood); animation: fumbleshake .5s ease-in-out; }
+.ev-roll .d20.tumbling { opacity: .85; filter: blur(.4px); }
+@keyframes goldflash {
+  0% { box-shadow: 0 0 0 transparent; transform: scale(1); }
+  35% { box-shadow: 0 0 34px var(--thread); transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+@keyframes fumbleshake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-5px) rotate(-6deg); }
+  40%, 80% { transform: translateX(5px) rotate(6deg); }
+}
 .ev-roll .roll-label { color: var(--text); font-weight: 700; margin-bottom: 2px; }
 .ev-roll .roll-math { color: var(--faded); }
 
@@ -285,6 +299,17 @@ input, textarea { font: inherit; color: inherit; }
   animation: pulse 1.2s ease-in-out infinite;
 }
 @keyframes pulse { 0%, 100% { opacity: .25; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.15); } }
+.thinking .think-secs { font-style: normal; font-family: var(--mono); font-size: 12px; color: var(--faded); }
+
+/* Sticky GM-turn error with a retry, shown in the action dock. */
+.turn-err {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  max-width: 1000px; margin: 0 auto 12px; padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--blood) 55%, transparent);
+  border-radius: 10px; background: color-mix(in srgb, var(--blood) 10%, var(--panel));
+  color: var(--text); font-size: 14px;
+}
+.turn-err span:first-child { flex: 1 1 240px; }
 
 /* ------------------------------------------------------------ choices --- */
 .actiondock { border-top: 1px solid var(--edge-soft); padding: 14px 26px 18px; background: var(--dock); backdrop-filter: blur(6px); }

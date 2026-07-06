@@ -341,7 +341,12 @@ class GameMaster:
         char = db.get_character(character_id)
         self.name = char["name"]
         self._name_re = re.compile(re.escape(self.name), re.IGNORECASE)
-        self.choices: list[tuple[str, str]] = []  # (action text, trait tag)
+        # (text, trait, prof, dc, assumed) — restored from the last save so a
+        # returning player gets their menu instantly, without a GM call.
+        self.choices: list[tuple] = [
+            tuple(c) for c in (state.get("choices") or [])
+            if isinstance(c, (list, tuple)) and len(c) == 5
+        ] if isinstance(state, dict) else []
 
     def _system(self) -> str:
         char = db.get_character(self.character_id)
@@ -357,14 +362,17 @@ class GameMaster:
                 f"{menu}\n\n{SYSTEM_PROMPT}{LANG_ADDENDA.get(lang, '')}")
 
     # `game.py` uses truthiness of `gm.messages` to detect a resumable game.
+    # A saved transcript counts even without a claude session id — stateless
+    # backends resume by replaying `history`.
     @property
     def messages(self):
-        return [self.session_id] if self.session_id else []
+        return [self.session_id] if self.session_id else self.history
 
     # ------------------------------------------------------------- CLI call ----
     def _save_state(self) -> None:
         db.save_conversation(self.character_id,
-                             {"session_id": self.session_id, "history": self.history})
+                             {"session_id": self.session_id, "history": self.history,
+                              "choices": self.choices})
 
     def _remember(self, role: str, text: str) -> None:
         self.history.append({"role": role, "text": text})
