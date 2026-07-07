@@ -9,7 +9,7 @@ export default function Create({ boot, onDone, onBack, onError }) {
   const [name, setName] = useState("");
   const [race, setRace] = useState("");
   const [role, setRole] = useState("");
-  const [lang, setLang] = useState("en");
+  const [lang, setLang] = useState(boot.default_lang || "en");
   const [premise, setPremise] = useState("");
   const [stats, setStats] = useState(null);
   const [rolling, setRolling] = useState(false);

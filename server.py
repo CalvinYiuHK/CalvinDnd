@@ -259,7 +259,8 @@ def bootstrap():
     return {"scenarios": scens, "heroes": heroes,
             "backend": gm_mod.current_backend(),
             "model": gm_mod.current_model(),
-            "effort": gm_mod.current_effort()}
+            "effort": gm_mod.current_effort(),
+            "default_lang": db.get_setting("default_lang", "en")}
 
 
 @app.post("/api/roll-stats")
@@ -387,6 +388,7 @@ def settings_payload() -> dict:
         "backend": gm_mod.current_backend(),
         "effort": gm_mod.current_effort(),
         "effort_levels": list(gm_mod.EFFORT_LEVELS),
+        "default_lang": db.get_setting("default_lang", "en"),
         "backends": [
             {"name": name, "installed": avail[name], "mode": cfg["mode"],
              "models": cfg["models"], "model": gm_mod.current_model(name),
@@ -405,6 +407,7 @@ class SettingsBody(BaseModel):
     backend: str | None = None
     model: str | None = None
     effort: str | None = None
+    default_lang: str | None = None
 
 
 @app.post("/api/settings")
@@ -422,6 +425,10 @@ def set_settings(body: SettingsBody):
         if body.effort not in gm_mod.EFFORT_LEVELS:
             raise HTTPException(400, "unknown effort level")
         db.set_setting("effort", body.effort)
+    if body.default_lang is not None:
+        if body.default_lang not in ("en", "canto"):
+            raise HTTPException(400, "lang must be en or canto")
+        db.set_setting("default_lang", body.default_lang)
     return settings_payload()
 
 

@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { api, gameSocket } from "./api.js";
 import Feed from "./Feed.jsx";
 import Sidebar from "./Sidebar.jsx";
+import Settings from "./Settings.jsx";
 import { Avatar } from "./icons.jsx";
 
 const ABILITIES = ["str", "dex", "con", "int", "wis", "cha"];
@@ -113,6 +114,7 @@ export default function Game({ heroId, onExit, onError, themePicker }) {
   const [allocating, setAllocating] = useState(false);
   const [text, setText] = useState("");
   const [turnErr, setTurnErr] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
   const sockRef = useRef(null);
   const seenIds = useRef(new Set());
   const startedRef = useRef(false);
@@ -201,10 +203,11 @@ export default function Game({ heroId, onExit, onError, themePicker }) {
     try { setState(await api.forget(heroId, id)); }
     catch (e) { onError(String(e.message || e)); }
   };
-  const toggleLang = async () => {
-    try { setState(await api.setLang(heroId, state.lang === "canto" ? "en" : "canto")); }
+  const setHeroLang = async (lang) => {
+    try { setState(await api.setLang(heroId, lang)); }
     catch (e) { onError(String(e.message || e)); }
   };
+  const toggleLang = () => setHeroLang(state.lang === "canto" ? "en" : "canto");
   const allocate = async (alloc) => {
     setState(await api.allocate(heroId, alloc));
     setAllocating(false);
@@ -231,6 +234,7 @@ export default function Game({ heroId, onExit, onError, themePicker }) {
           <span className="tok">◈ <b>{state.gold}</b></span>
         </span>
         {themePicker}
+        <button className="linkish" onClick={() => setShowSettings(true)}>⚙ settings</button>
         <button className="linkish" onClick={onExit}>⟵ heroes</button>
       </div>
 
@@ -260,6 +264,10 @@ export default function Game({ heroId, onExit, onError, themePicker }) {
           onUseSkill={useSkill} onForget={forget} onLang={toggleLang} />
       </div>
 
+      {showSettings && (
+        <Settings onClose={() => setShowSettings(false)} onSaved={() => {}}
+          onError={onError} hero={{ lang: state.lang, setLang: setHeroLang }} />
+      )}
       {confirmPrompt && <ConfirmModal prompt={confirmPrompt} onAnswer={answer} />}
       {allocating && state.attr_points > 0 && (
         <AllocateModal state={state} onDone={allocate} onError={onError} />
