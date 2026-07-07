@@ -23,6 +23,8 @@ export const api = {
   forget: (id, skill_id) => req("POST", `/api/heroes/${id}/forget`, { skill_id }),
   allocate: (id, allocation) => req("POST", `/api/heroes/${id}/allocate`, { allocation }),
   setLang: (id, lang) => req("POST", `/api/heroes/${id}/lang`, { lang }),
+  settings: () => req("GET", "/api/settings"),
+  saveSettings: (patch) => req("POST", "/api/settings", patch),
 };
 
 export function gameSocket(heroId, onMessage, onClose) {

@@ -162,6 +162,24 @@ assert db_mod.hero_armor(cid) == 2, f"cursed penalty counted as armor: {db_mod.h
 st3 = client.post(f"/api/heroes/{cid}/lang", json={"lang": "canto"}).json()
 assert st3["lang"] == "canto"
 
+# ---- GM settings: read, change model/effort/backend, reject junk
+sett = client.get("/api/settings").json()
+assert sett["backend"] in ("claude", "gemini")
+assert any(b["name"] == "claude" and b["models"] for b in sett["backends"])
+assert sett["effort"] in sett["effort_levels"]
+
+sett = client.post("/api/settings", json={"model": "haiku", "effort": "low"}).json()
+claude_cfg = next(b for b in sett["backends"] if b["name"] == "claude")
+assert claude_cfg["model"] == "haiku" and sett["effort"] == "low", sett
+boot2 = client.get("/api/bootstrap").json()
+assert boot2["model"] == "haiku" and boot2["effort"] == "low", "bootstrap stale"
+
+assert client.post("/api/settings", json={"backend": "cthulhu"}).status_code == 400
+assert client.post("/api/settings", json={"effort": "ultra"}).status_code == 400
+assert client.post("/api/settings", json={"model": "x; rm -rf /"}).status_code == 400
+# restore defaults so later assertions see the stock config
+client.post("/api/settings", json={"model": "sonnet", "effort": "medium"})
+
 assert client.delete(f"/api/heroes/{cid}").json()["ok"]
 assert client.get(f"/api/heroes/{cid}/state").status_code == 404
 
