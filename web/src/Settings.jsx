@@ -2,9 +2,13 @@ import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { api } from "./api.js";
 
-// GM settings — storyteller backend, model, and effort. Writes the same
-// settings the TUI's /backend, /model and /effort commands use.
-export default function Settings({ onClose, onError, onSaved }) {
+const LANGS = [["en", "English"], ["canto", "廣東話 (繁體中文)"]];
+
+// GM settings — storyteller backend, model, effort, and language. Writes the
+// same settings the TUI's /backend, /model and /effort commands use.
+// `hero` ({lang, setLang}) is passed when opened in-game: the language group
+// then switches the current hero instead of the default for new heroes.
+export default function Settings({ onClose, onError, onSaved, hero }) {
   const [s, setS] = useState(null);
 
   useEffect(() => {
@@ -71,6 +75,21 @@ export default function Settings({ onClose, onError, onSaved }) {
             <div className="set-hint">lower = snappier turns, higher = richer storytelling</div>
           </div>
         )}
+
+        <div className="set-group">
+          <label>{hero ? "Story language (this hero)" : "Language (new heroes)"}</label>
+          <div className="pillrow">
+            {LANGS.map(([key, label]) => {
+              const active = hero ? hero.lang === key : s.default_lang === key;
+              return (
+                <button key={key} className={`pill ${active ? "sel" : ""}`}
+                  onClick={() => (hero ? hero.setLang(key) : save({ default_lang: key }))}>
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         <p className="set-note">
           Applies to every hero from their next turn. The terminal commands
