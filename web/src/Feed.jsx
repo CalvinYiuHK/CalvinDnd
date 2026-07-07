@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import { motion } from "framer-motion";
 import { FoeIcon } from "./icons.jsx";
@@ -24,6 +24,67 @@ function boldHero(text, heroName) {
   return text.replace(new RegExp(`(?<![\\w*])${esc}(?![\\w*])`, "g"), `**${heroName}**`);
 }
 
+// The d20 tumbles through random faces before settling on the real total,
+// then flashes gold on a natural 20 / shakes on a natural 1.
+function RollCard({ content }) {
+  const r = parseRoll(content);
+  const [face, setFace] = useState(r.total == null ? null : "?");
+  const [settled, setSettled] = useState(r.total == null);
+  useEffect(() => {
+    if (r.total == null) return;
+    let ticks = 0;
+    const iv = setInterval(() => {
+      ticks += 1;
+      if (ticks >= 8) {
+        clearInterval(iv);
+        setFace(r.total);
+        setSettled(true);
+      } else {
+        setFace(1 + Math.floor(Math.random() * 20));
+      }
+    }, 70);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const cls = settled ? (r.nat === 20 ? "nat20" : r.nat === 1 ? "nat1" : "") : "tumbling";
+  return (
+    <motion.div className="ev ev-roll hot" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+      <span className="knot" />
+      <div className="card">
+        <motion.div className={`d20 ${cls}`}
+          initial={{ rotate: -160, scale: 0.4 }} animate={{ rotate: 0, scale: 1 }}
+          transition={{ type: "spring", stiffness: 220, damping: 14 }}>
+          {face ?? "?"}
+        </motion.div>
+        <div>
+          <div className="roll-label">{r.label || "Roll"}
+            {settled && r.nat === 20 && " — NATURAL 20"}
+            {settled && r.nat === 1 && " — NATURAL 1"}</div>
+          <div className="roll-math">{settled ? r.math : "the die tumbles…"}</div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// Busy indicator with an elapsed-time counter so long GM turns never look hung.
+function Thinking() {
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    const iv = setInterval(() => setSecs((s) => s + 1), 1000);
+    return () => clearInterval(iv);
+  }, []);
+  return (
+    <div className="thinking">
+      <span className="orb" />
+      {secs >= 20
+        ? "the Fateweaver weighs a heavy thread… (still narrating)"
+        : "the Fateweaver considers your thread…"}
+      {secs >= 5 && <span className="think-secs"> {secs}s</span>}
+    </div>
+  );
+}
+
 function Event({ ev, heroName }) {
   const { kind, content } = ev;
 
@@ -40,27 +101,7 @@ function Event({ ev, heroName }) {
     const chose = content.match(/^I (?:choose|use my skill):?\s*"([^"]+)"/);
     return <div className="ev ev-player">{chose ? chose[1] : content}</div>;
   }
-  if (kind === "roll") {
-    const r = parseRoll(content);
-    const cls = r.nat === 20 ? "nat20" : r.nat === 1 ? "nat1" : "";
-    return (
-      <motion.div className="ev ev-roll hot" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-        <span className="knot" />
-        <div className="card">
-          <motion.div className={`d20 ${cls}`}
-            initial={{ rotate: -160, scale: 0.4 }} animate={{ rotate: 0, scale: 1 }}
-            transition={{ type: "spring", stiffness: 220, damping: 14 }}>
-            {r.total ?? "?"}
-          </motion.div>
-          <div>
-            <div className="roll-label">{r.label || "Roll"}
-              {r.nat === 20 && " — NATURAL 20"}{r.nat === 1 && " — NATURAL 1"}</div>
-            <div className="roll-math">{r.math}</div>
-          </div>
-        </div>
-      </motion.div>
-    );
-  }
+  if (kind === "roll") return <RollCard content={content} />;
   if (kind === "damage") {
     const out = content.startsWith("dealt");
     return (
@@ -131,9 +172,7 @@ export default function Feed({ events, heroName, busy }) {
     <div className="feed">
       <div className="feed-inner">
         {events.map((ev) => <Event key={ev.id ?? `${ev.kind}-${ev.content}`} ev={ev} heroName={heroName} />)}
-        {busy && (
-          <div className="thinking"><span className="orb" /> the Fateweaver considers your thread…</div>
-        )}
+        {busy && <Thinking />}
         <div ref={endRef} />
       </div>
     </div>

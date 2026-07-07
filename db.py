@@ -28,12 +28,16 @@ def _conn() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # The web server reads (event pump) and writes (GM worker thread)
+    # concurrently; without these a collision raises "database is locked".
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
 
 def init_db() -> None:
     """Create tables if they don't exist. Safe to call every launch."""
     with _conn() as c:
+        c.execute("PRAGMA journal_mode = WAL")
         c.executescript(
             """
             CREATE TABLE IF NOT EXISTS characters (
@@ -353,7 +357,14 @@ def load_conversation(character_id: int):
         row = c.execute(
             "SELECT messages FROM conversation WHERE character_id=?", (character_id,)
         ).fetchone()
-    return json.loads(row["messages"]) if row else []
+    if not row:
+        return []
+    try:
+        return json.loads(row["messages"])
+    except (json.JSONDecodeError, TypeError):
+        # A truncated save must not brick the hero — the GM rebuilds the
+        # scene from the event log via its recap path.
+        return []
 
 
 # ------------------------------------------------------ progression: gear ----
@@ -527,10 +538,11 @@ def damage_total(dice_total: int, attr_mod: int, attacker_level: int,
 
 
 def hero_armor(character_id: int) -> int:
-    """Hero damage reduction: total bonus points on the equipped armor item."""
+    """Hero damage reduction: total positive bonus points on the equipped
+    armor item. Penalties on cursed gear must not count as protection."""
     for e in list_equipment(character_id):
         if e["equipped"] and e["slot"] == "armor":
-            return sum(abs(v) for v in e["bonuses"].values())
+            return sum(v for v in e["bonuses"].values() if v > 0)
     return 0
 
 

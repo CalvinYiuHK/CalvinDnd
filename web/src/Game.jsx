@@ -112,9 +112,11 @@ export default function Game({ heroId, onExit, onError, themePicker }) {
   const [confirmPrompt, setConfirmPrompt] = useState(null);
   const [allocating, setAllocating] = useState(false);
   const [text, setText] = useState("");
+  const [turnErr, setTurnErr] = useState(null);
   const sockRef = useRef(null);
   const seenIds = useRef(new Set());
   const startedRef = useRef(false);
+  const lastActionRef = useRef(null);
 
   const pushEvents = useCallback((evs) => {
     setEvents((old) => {
@@ -132,29 +134,62 @@ export default function Game({ heroId, onExit, onError, themePicker }) {
       if (msg.type === "event") pushEvents([msg]);
       else if (msg.type === "state") setState(msg.state);
       else if (msg.type === "choices") setChoices(msg.choices);
-      else if (msg.type === "busy") setBusy(true);
+      else if (msg.type === "busy") { setBusy(true); setTurnErr(null); }
       else if (msg.type === "idle") setBusy(false);
       else if (msg.type === "confirm") setConfirmPrompt(msg.prompt);
       else if (msg.type === "levelup") setAllocating(true);
-      else if (msg.type === "error") { onError(msg.message); setBusy(false); }
+      else if (msg.type === "error") {
+        // GM-turn failures stay on screen with a retry; the rest toast.
+        if (msg.retryable) setTurnErr(msg.message);
+        else onError(msg.message);
+        setBusy(false);
+      }
       else if (msg.type === "hello" && !startedRef.current) {
         startedRef.current = true;
-        sock.send({ type: "start" });
+        // With a saved choice menu the server resumes us instantly —
+        // no need to spend a GM turn just to look at the hero.
+        if (!msg.instant) {
+          lastActionRef.current = { type: "start" };
+          sock.send({ type: "start" });
+        }
       }
     }, () => !dead && setBusy(false));
     sockRef.current = sock;
     return () => { dead = true; sock.close(); };
   }, [heroId, pushEvents, onError]);
 
-  const pick = (i, power) => sockRef.current?.send({ type: "choice", index: i, power });
+  const act = (msg) => {
+    lastActionRef.current = msg;
+    setTurnErr(null);
+    sockRef.current?.send(msg);
+  };
+  const pick = (i, power) => act({ type: "choice", index: i, power });
   const say = (e) => {
     e.preventDefault();
     const t = text.trim();
     if (!t || busy) return;
     setText("");
-    sockRef.current?.send({ type: "say", text: t });
+    act({ type: "say", text: t });
   };
-  const useSkill = (i) => sockRef.current?.send({ type: "skill", index: i });
+  const useSkill = (i) => act({ type: "skill", index: i });
+  const retry = () => lastActionRef.current && act(lastActionRef.current);
+
+  // 1/2/3 picks a choice, shift+1/2/3 spends a power token on it.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (busy || confirmPrompt || allocating) return;
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      const m = /^Digit([1-3])$/.exec(e.code);
+      if (!m) return;
+      const i = +m[1] - 1;
+      if (i >= choices.length) return;
+      e.preventDefault();
+      pick(i, e.shiftKey && choices[i].trait != null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
   const answer = (v) => { setConfirmPrompt(null); sockRef.current?.send({ type: "confirm", answer: v }); };
 
   const equip = async (id) => {
@@ -203,6 +238,15 @@ export default function Game({ heroId, onExit, onError, themePicker }) {
         <div className="stage">
           <Feed events={events} heroName={state.name} busy={busy} />
           <div className="actiondock">
+            {turnErr && !busy && (
+              <div className="turn-err">
+                <span>{turnErr}</span>
+                {lastActionRef.current && (
+                  <button className="btn" onClick={retry}>↻ Try again</button>
+                )}
+                <button className="linkish" onClick={() => setTurnErr(null)}>dismiss</button>
+              </div>
+            )}
             <AnimatePresence>{!busy && <ChoiceCards choices={choices} busy={busy} onPick={pick} />}</AnimatePresence>
             <form className="sayrow" onSubmit={say}>
               <input value={text} onChange={(e) => setText(e.target.value)}

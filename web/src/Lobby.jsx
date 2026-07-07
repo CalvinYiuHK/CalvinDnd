@@ -1,8 +1,10 @@
-import React from "react";
+import React, { useState } from "react";
 import { api } from "./api.js";
 import { Avatar } from "./icons.jsx";
+import Settings from "./Settings.jsx";
 
-export default function Lobby({ boot, onPlay, onCreate, onDeleted, onError }) {
+export default function Lobby({ boot, onPlay, onCreate, onDeleted, onRefresh, onError }) {
+  const [showSettings, setShowSettings] = useState(false);
   const scenEmoji = Object.fromEntries(boot.scenarios.map((s) => [s.key, s.emoji]));
 
   const del = async (e, hero) => {
@@ -36,9 +38,15 @@ export default function Lobby({ boot, onPlay, onCreate, onDeleted, onError }) {
       <div className="rowlabel">Begin anew</div>
       <button className="big-cta" onClick={onCreate}>⚭ Weave a new hero</button>
 
-      <p style={{ marginTop: 40, textAlign: "center", color: "var(--mute)", fontSize: 13, fontFamily: "var(--mono)" }}>
+      <p className="gm-line">
         GM: {boot.backend} · {boot.model} · {boot.effort}
+        <button className="linkish" onClick={() => setShowSettings(true)}>⚙ settings</button>
       </p>
+
+      {showSettings && (
+        <Settings onClose={() => setShowSettings(false)}
+          onSaved={onRefresh} onError={onError} />
+      )}
     </div>
   );
 }

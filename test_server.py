@@ -126,8 +126,59 @@ log = client.get(f"/api/heroes/{cid}/log").json()["events"]
 assert any(e["kind"] == "roll" for e in log), "rolls missing from log"
 assert any(e["kind"] == "gm" for e in log), "narration missing from log"
 
+# ---- WS: instant resume — a returning hero gets the saved choice menu
+# immediately, with no GM call burned just to look at the game.
+gm_calls_before = calls["n"]
+with client.websocket_connect(f"/ws/{cid}") as ws:
+    msg = ws.receive_json()
+    assert msg["type"] == "state"
+    msg = ws.receive_json()
+    assert msg["type"] == "hello" and msg["resuming"] is True
+    assert msg["instant"] is True, f"expected instant resume: {msg}"
+    msg = ws.receive_json()
+    assert msg["type"] == "choices" and len(msg["choices"]) == 3, msg
+    assert msg["choices"][0]["text"] == "Press the attack", msg["choices"]
+    msg = ws.receive_json()
+    assert msg["type"] == "idle"
+assert calls["n"] == gm_calls_before, "resume must not spend a GM turn"
+
+# ---- corruption guard: a truncated conversation row must not brick the hero
+import db as db_mod
+with db_mod._conn() as c:
+    c.execute("UPDATE conversation SET messages=? WHERE character_id=?",
+              ('{"session_id": "x", "hist', cid))
+assert db_mod.load_conversation(cid) == [], "corrupt save should fall back"
+with client.websocket_connect(f"/ws/{cid}") as ws:
+    assert ws.receive_json()["type"] == "state"
+    hello = ws.receive_json()
+    assert hello["type"] == "hello" and hello["instant"] is False
+
+# ---- armor: only positive bonuses count as damage reduction
+aid = db_mod.add_equipment(cid, "Cursed Mail", "armor", "rare",
+                           {"con": 2, "dex": -3}, ["Rustbound: it whispers"])["id"]
+db_mod.equip_item(cid, aid)
+assert db_mod.hero_armor(cid) == 2, f"cursed penalty counted as armor: {db_mod.hero_armor(cid)}"
+
 st3 = client.post(f"/api/heroes/{cid}/lang", json={"lang": "canto"}).json()
 assert st3["lang"] == "canto"
+
+# ---- GM settings: read, change model/effort/backend, reject junk
+sett = client.get("/api/settings").json()
+assert sett["backend"] in ("claude", "gemini")
+assert any(b["name"] == "claude" and b["models"] for b in sett["backends"])
+assert sett["effort"] in sett["effort_levels"]
+
+sett = client.post("/api/settings", json={"model": "haiku", "effort": "low"}).json()
+claude_cfg = next(b for b in sett["backends"] if b["name"] == "claude")
+assert claude_cfg["model"] == "haiku" and sett["effort"] == "low", sett
+boot2 = client.get("/api/bootstrap").json()
+assert boot2["model"] == "haiku" and boot2["effort"] == "low", "bootstrap stale"
+
+assert client.post("/api/settings", json={"backend": "cthulhu"}).status_code == 400
+assert client.post("/api/settings", json={"effort": "ultra"}).status_code == 400
+assert client.post("/api/settings", json={"model": "x; rm -rf /"}).status_code == 400
+# restore defaults so later assertions see the stock config
+client.post("/api/settings", json={"model": "sonnet", "effort": "medium"})
 
 assert client.delete(f"/api/heroes/{cid}").json()["ok"]
 assert client.get(f"/api/heroes/{cid}/state").status_code == 404

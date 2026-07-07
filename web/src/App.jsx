@@ -41,6 +41,7 @@ export default function App() {
           onPlay={(id) => setScreen({ name: "game", id })}
           onCreate={() => setScreen({ name: "create" })}
           onDeleted={refresh}
+          onRefresh={refresh}
           onError={setErr}
         />
       )}

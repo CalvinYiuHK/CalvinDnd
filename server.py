@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import threading
 
 # The engine renders through ANSI; force color so enemy art keeps its
@@ -376,6 +377,54 @@ def set_lang(cid: int, body: LangBody):
     return state_payload(cid)
 
 
+# ------------------------------------------------------------- GM settings
+# Same settings table the TUI's /backend, /model, /effort commands use;
+# env vars (TAVERN_BACKEND, TAVERN_MODEL, TAVERN_EFFORT) still win.
+
+def settings_payload() -> dict:
+    avail = gm_mod.available_backends()
+    return {
+        "backend": gm_mod.current_backend(),
+        "effort": gm_mod.current_effort(),
+        "effort_levels": list(gm_mod.EFFORT_LEVELS),
+        "backends": [
+            {"name": name, "installed": avail[name], "mode": cfg["mode"],
+             "models": cfg["models"], "model": gm_mod.current_model(name),
+             "install": cfg["install"]}
+            for name, cfg in gm_mod.BACKENDS.items()
+        ],
+    }
+
+
+@app.get("/api/settings")
+def get_settings():
+    return settings_payload()
+
+
+class SettingsBody(BaseModel):
+    backend: str | None = None
+    model: str | None = None
+    effort: str | None = None
+
+
+@app.post("/api/settings")
+def set_settings(body: SettingsBody):
+    if body.backend is not None:
+        if body.backend not in gm_mod.BACKENDS:
+            raise HTTPException(400, "unknown backend")
+        db.set_setting("backend", body.backend)
+    if body.model is not None:
+        if not re.fullmatch(r"[\w.:-]{1,64}", body.model):
+            raise HTTPException(400, "bad model name")
+        b = body.backend or gm_mod.current_backend()
+        db.set_setting(f"model:{b}", body.model)
+    if body.effort is not None:
+        if body.effort not in gm_mod.EFFORT_LEVELS:
+            raise HTTPException(400, "unknown effort level")
+        db.set_setting("effort", body.effort)
+    return settings_payload()
+
+
 # ---------------------------------------------------------------- WebSocket
 class Session:
     """One live hero connection: a GameMaster plus the confirm bridge."""
@@ -453,7 +502,9 @@ async def _run_turn(sess: Session, fn) -> None:
         await pump_task
         await _push_events(sess, last_id)
     if error:
-        await sess.ws.send_json({"type": "error", "message": error})
+        # retryable: the player's action can simply be re-sent.
+        await sess.ws.send_json({"type": "error", "message": error,
+                                 "retryable": True})
     await sess.ws.send_json({"type": "choices", "choices": choices_payload(sess.gm)})
     await sess.ws.send_json({"type": "state", "state": state_payload(cid)})
     char = db.get_character(cid)
@@ -492,7 +543,14 @@ async def ws_game(ws: WebSocket, cid: int):
 
     sess = Session(ws, gmi, asyncio.get_running_loop())
     await ws.send_json({"type": "state", "state": state_payload(cid)})
-    await ws.send_json({"type": "hello", "resuming": bool(gmi.messages)})
+    # A saved choice menu means the hero can resume instantly — no GM call
+    # just to look at a saved game; the client skips its auto-`start`.
+    instant = bool(gmi.messages) and bool(gmi.choices)
+    await ws.send_json({"type": "hello", "resuming": bool(gmi.messages),
+                        "instant": instant})
+    if instant:
+        await ws.send_json({"type": "choices", "choices": choices_payload(gmi)})
+        await ws.send_json({"type": "idle"})
 
     turn_task: asyncio.Task | None = None
     try:
