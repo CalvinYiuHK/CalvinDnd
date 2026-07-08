@@ -9,6 +9,7 @@ Everything the game needs to survive a restart lives here:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sqlite3
@@ -24,14 +25,24 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _conn() -> sqlite3.Connection:
+@contextlib.contextmanager
+def _conn():
+    """Commit on success, roll back on error — and, unlike sqlite3's own
+    context manager, always CLOSE. Relying on garbage collection leaks the
+    file descriptor; a long web session leaks past the OS limit (macOS
+    defaults to 256) and every later connect fails with
+    "unable to open database file"."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     # The web server reads (event pump) and writes (GM worker thread)
     # concurrently; without these a collision raises "database is locked".
     conn.execute("PRAGMA busy_timeout = 5000")
-    return conn
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def init_db() -> None:

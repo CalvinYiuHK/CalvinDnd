@@ -214,4 +214,16 @@ gm2 = GameMaster(client.post("/api/heroes", json={
 sysprompt = gm2._system()
 assert "Enemy icon menu" in sysprompt and "coffee-fiend" in sysprompt
 
+# ---- fd-leak guard: DB connections must close deterministically. Left to
+# the GC they pile up and connect() eventually fails with "unable to open
+# database file" (macOS caps a process at 256 open files by default).
+import gc
+
+gc.collect()
+_fds_before = len(os.listdir("/dev/fd"))
+for _ in range(100):
+    client.get("/api/bootstrap")
+_leaked = len(os.listdir("/dev/fd")) - _fds_before
+assert _leaked < 20, f"fd leak: {_leaked} new fds after 100 requests"
+
 print("ALL SERVER TESTS PASSED")
