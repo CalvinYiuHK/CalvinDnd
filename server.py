@@ -591,6 +591,21 @@ async def ws_game(ws: WebSocket, cid: int):
                 if 0 <= i < len(db.list_skills(cid)):
                     turn_task = asyncio.create_task(
                         _run_turn(sess, lambda i=i: gmi.use_skill(i)))
+            elif kind == "lang":
+                lang = msg.get("lang")
+                if lang in ("en", "canto") and lang != (
+                        db.get_character(cid).get("lang") or "en"):
+                    db.set_language(cid, lang)
+                    # Like the TUI's /lang: the GM must be told, or a resumed
+                    # session keeps narrating in the old language.
+                    label = ("Cantonese/Traditional Chinese" if lang == "canto"
+                             else "English")
+                    note = (f"[The player switched the story language to {label}. "
+                            f"From now on follow the narration language rules for "
+                            f"it. Briefly acknowledge in the new language and "
+                            f"continue the scene.]")
+                    turn_task = asyncio.create_task(
+                        _run_turn(sess, lambda n=note: gmi.send(n)))
     except WebSocketDisconnect:
         pass
     finally:

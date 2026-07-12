@@ -159,6 +159,33 @@ aid = db_mod.add_equipment(cid, "Cursed Mail", "armor", "rare",
 db_mod.equip_item(cid, aid)
 assert db_mod.hero_armor(cid) == 2, f"cursed penalty counted as armor: {db_mod.hero_armor(cid)}"
 
+# ---- WS: switching language runs a GM turn so the story actually switches
+lang_prompts = []
+_orig_fake = GameMaster._invoke
+def spy_invoke(self, prompt):
+    lang_prompts.append(prompt)
+    return _orig_fake(self, prompt)
+GameMaster._invoke = spy_invoke
+with client.websocket_connect(f"/ws/{cid}") as ws:
+    while True:  # drain the hello/instant-resume preamble
+        m = ws.receive_json()
+        if m["type"] == "hello" and not m.get("instant"):
+            break
+        if m["type"] == "idle":
+            break
+    ws.send_json({"type": "lang", "lang": "canto"})
+    saw_busy = False
+    while True:
+        m = ws.receive_json()
+        if m["type"] == "busy":
+            saw_busy = True
+        if m["type"] == "idle":
+            break
+GameMaster._invoke = _orig_fake
+assert saw_busy, "language switch must run a GM turn"
+assert any("switched the story language" in p for p in lang_prompts), lang_prompts
+assert db_mod.get_character(cid)["lang"] == "canto", "lang not persisted"
+
 st3 = client.post(f"/api/heroes/{cid}/lang", json={"lang": "canto"}).json()
 assert st3["lang"] == "canto"
 
