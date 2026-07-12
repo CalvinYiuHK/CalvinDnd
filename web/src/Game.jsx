@@ -8,12 +8,17 @@ import { Avatar } from "./icons.jsx";
 
 const ABILITIES = ["str", "dex", "con", "int", "wis", "cha"];
 
-function ChoiceCards({ choices, busy, onPick }) {
+function ChoiceCards({ choices, busy, onPick, state }) {
   if (choices.length === 0) return null;
   return (
     <div className="choices">
       {choices.map((c, i) => {
-        const chipCls = c.trait == null ? "norm" : c.mod > 0 ? "pos" : c.mod < 0 ? "neg" : "neu";
+        // Recompute from live state so equipping gear mid-scene updates the
+        // card — the roll itself always uses current gear on the server.
+        const mod = c.trait == null ? null
+          : state.stats[c.trait].mod + (c.prof ? state.proficiency : 0);
+        const need = mod == null ? null : Math.max(2, Math.min(20, (c.dc ?? 13) - mod));
+        const chipCls = c.trait == null ? "norm" : mod > 0 ? "pos" : mod < 0 ? "neg" : "neu";
         return (
           <motion.button key={`${i}-${c.text}`} className="choice" disabled={busy}
             onClick={() => onPick(i, false)}
@@ -26,10 +31,10 @@ function ChoiceCards({ choices, busy, onPick }) {
               ) : (
                 <>
                   <span className={`chip ${chipCls}`}>
-                    ⚅ {c.trait.toUpperCase()} {c.mod >= 0 ? `+${c.mod}` : c.mod}
+                    ⚅ {c.trait.toUpperCase()} {mod >= 0 ? `+${mod}` : mod}
                     {c.prof && <span className="c-star">★</span>}
                   </span>
-                  <span className="c-need">need {c.need}+</span>
+                  <span className="c-need">need {need}+</span>
                   <span
                     className="c-power"
                     role="button"
@@ -203,10 +208,9 @@ export default function Game({ heroId, onExit, onError, themePicker }) {
     try { setState(await api.forget(heroId, id)); }
     catch (e) { onError(String(e.message || e)); }
   };
-  const setHeroLang = async (lang) => {
-    try { setState(await api.setLang(heroId, lang)); }
-    catch (e) { onError(String(e.message || e)); }
-  };
+  // Language rides the WebSocket so the GM gets told and acknowledges
+  // in-story; a bare DB write leaves a resumed session in the old language.
+  const setHeroLang = (lang) => { if (!busy) act({ type: "lang", lang }); };
   const toggleLang = () => setHeroLang(state.lang === "canto" ? "en" : "canto");
   const allocate = async (alloc) => {
     setState(await api.allocate(heroId, alloc));
@@ -251,7 +255,7 @@ export default function Game({ heroId, onExit, onError, themePicker }) {
                 <button className="linkish" onClick={() => setTurnErr(null)}>dismiss</button>
               </div>
             )}
-            <AnimatePresence>{!busy && <ChoiceCards choices={choices} busy={busy} onPick={pick} />}</AnimatePresence>
+            <AnimatePresence>{!busy && <ChoiceCards choices={choices} busy={busy} onPick={pick} state={state} />}</AnimatePresence>
             <form className="sayrow" onSubmit={say}>
               <input value={text} onChange={(e) => setText(e.target.value)}
                 placeholder={busy ? "the Fateweaver is narrating…" : "or do anything — type your own action"}
